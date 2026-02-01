@@ -9,11 +9,11 @@
 EchoServer::EchoServer(int port) : listen_fd_(-1), epfd_(-1), port_(port) {}
 
 EchoServer::~EchoServer() {
-  if (this->listen_fd_ == -1) {
+  if (this->listen_fd_ != -1) {
     close(this->listen_fd_);
   }
 
-  if (this->epfd_ == -1) {
+  if (this->epfd_ != -1) {
     close(this->epfd_);
   }
 }
@@ -43,8 +43,10 @@ void EchoServer::run() {
       int fd = events[i].data.fd;
 
       if (this->listen_fd_ == fd) {
+        std::cout << "run here 1" << std::endl;
         this->handleeAccept();
       } else {
+        std::cout << "run here 2" << std::endl;
         this->handleClient(fd);
       }
     }
@@ -58,7 +60,7 @@ void EchoServer::handleeAccept() {
     epoll_event cev{};
     cev.events = EPOLLIN;
     cev.data.fd = client_fd;
-    epoll_ctl(this->listen_fd_, EPOLL_CTL_ADD, client_fd, &cev);
+    epoll_ctl(this->epfd_, EPOLL_CTL_ADD, client_fd, &cev);
   }
 }
 

@@ -2,8 +2,13 @@
 build/
 cmake-build-*/
 out/
+CMakeFiles/
+bin/
 
 # Object files & binaries
+*.cmake
+CMakeCache.txt
+*.zip
 *.o
 *.a
 *.so

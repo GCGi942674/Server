@@ -23,7 +23,7 @@ void MessageCodec::Decoder::append(const char *data, size_t len) {
 bool MessageCodec::Decoder::tryDecode(std::string &out_msg) {
   if (this->buffer_.size() < 4)
     return false;
-
+  
   uint32_t net_len;
   std::memcpy(&net_len, this->buffer_.data(), 4);
   uint32_t body_len = ntohl(net_len);

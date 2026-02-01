@@ -3,37 +3,42 @@
 #include "utils.h"
 #include <arpa/inet.h>
 #include <cstring>
+#include <iostream>
 #include <unistd.h>
 
 EchoClient::EchoClient(const std::string &ip, int port)
     : server_ip_(ip), server_port_(port), sockfd_(-1) {}
 
 EchoClient::~EchoClient() {
-  if (this->sockfd_ == -1) {
+  if (this->sockfd_ != -1) {
     close(this->sockfd_);
   }
 }
 
 bool EchoClient::connect() {
   this->sockfd_ = socket(AF_INET, SOCK_STREAM, 0);
+  std::cout << this->sockfd_ << std::endl;
   if (this->sockfd_ == -1)
     return false;
 
   sockaddr_in serv_addr{};
   serv_addr.sin_family = AF_INET;
-  serv_addr.sin_port = htonl(this->server_port_);
-  if (inet_pton(AF_INET, this->server_ip_.c_str(), &serv_addr.sin_addr) < 0) {
+  serv_addr.sin_port = htons(this->server_port_);
+  if (inet_pton(AF_INET, this->server_ip_.c_str(), &serv_addr.sin_addr) <= 0) {
     close(this->sockfd_);
+    std::cout << this->sockfd_ << std::endl;
     this->sockfd_ = 1;
     return false;
   }
 
   if (::connect(this->sockfd_, (sockaddr *)&serv_addr, sizeof(serv_addr)) ==
       -1) {
+    std::cerr << "connect failed: " << strerror(errno) << std::endl;
     close(this->sockfd_);
     this->sockfd_ = -1;
     return false;
   }
+  std::cout << "connect after" << std::endl;
   return true;
 }
 

@@ -1,0 +1,17 @@
+# Build directories
+build/
+cmake-build-*/
+out/
+
+# Object files & binaries
+*.o
+*.a
+*.so
+client_app
+server_app
+tests/*
+
+# IDE
+.vscode/
+.idea/
+*.swp

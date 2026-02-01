@@ -2,9 +2,7 @@
 
 add_executable(server
     src/main.cpp
-    src/server.cpp
-    src/connection.cpp
-    src/thread_pool.cpp
+    src/echo_server.cpp
 )
 
 target_include_directories(server

@@ -2,7 +2,7 @@
 
 add_executable(client
     src/main.cpp
-    src/client.cpp
+    src/echo_client.cpp
 )
 
 target_include_directories(client

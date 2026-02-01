@@ -1,9 +1,10 @@
 # common/CMakeLists.txt
 
 add_library(common STATIC
-    src/codec.cpp
-    src/buffer.cpp
-    src/net_utils.cpp
+    src/utils.cpp
+    src/thread_pool.cpp
+    src/logging.cpp
+    src/protocol/message_codec.cpp
 )
 
 # 头文件路径（给别人用）

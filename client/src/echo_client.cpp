@@ -33,22 +33,20 @@ bool EchoClient::connect() {
 
   if (::connect(this->sockfd_, (sockaddr *)&serv_addr, sizeof(serv_addr)) ==
       -1) {
-    std::cerr << "connect failed: " << strerror(errno) << std::endl;
     close(this->sockfd_);
     this->sockfd_ = -1;
     return false;
   }
-  std::cout << "connect after" << std::endl;
   return true;
 }
 
-bool EchoClient::sendMessage(const std::string &msg, std::string &respone) {
+bool EchoClient::sendMessage(const std::string &msg, std::string &response) {
   auto encoded = MessageCodec::encode(msg);
 
   if (!sendAll(this->sockfd_, encoded.data(), encoded.size()))
     return false;
   static thread_local MessageCodec::Decoder decoder;
-  decoder.reset();
+  // decoder.reset();
 
   char recv_buf[1024];
   while (true) {
@@ -56,7 +54,7 @@ bool EchoClient::sendMessage(const std::string &msg, std::string &respone) {
     if (n < 0)
       return false;
     decoder.append(recv_buf, n);
-    if (decoder.tryDecode(respone)) {
+    if (decoder.tryDecode(response)) {
       return true;
     }
   }

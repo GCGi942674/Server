@@ -20,7 +20,7 @@ EchoServer::~EchoServer() {
 
 void EchoServer::run() {
   this->listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
-  setNonBlocking(listen_fd_);
+  // setNonBlocking(listen_fd_);
 
   sockaddr_in addr{};
   addr.sin_family = AF_INET;
@@ -43,10 +43,8 @@ void EchoServer::run() {
       int fd = events[i].data.fd;
 
       if (this->listen_fd_ == fd) {
-        std::cout << "run here 1" << std::endl;
         this->handleeAccept();
       } else {
-        std::cout << "run here 2" << std::endl;
         this->handleClient(fd);
       }
     }

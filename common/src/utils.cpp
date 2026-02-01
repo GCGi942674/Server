@@ -12,7 +12,6 @@ bool sendAll(int fd, const void* data, size_t len) {
     size_t sent = 0;
     const char* p = static_cast<const char*>(data);
     while (sent < len) {
-        std::cout << "run here 4" << std::endl;
         ssize_t n = send(fd, p + sent, len - sent, 0);
         if (n > 0) {
             sent += n;

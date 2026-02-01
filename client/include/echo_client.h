@@ -9,7 +9,7 @@ public:
     ~EchoClient();
 
     bool connect();
-    bool sendMessage(const std::string& msg, std::string& respone);
+    bool sendMessage(const std::string& msg, std::string& response);
     void disconnect();
 
 private:

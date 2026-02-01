@@ -4,10 +4,9 @@
 
 std::vector<char> MessageCodec::encode(const std::string &msg) {
   uint32_t len = static_cast<uint32_t>(msg.size());
-  uint32_t net_len = ntohl(len);
+  uint32_t net_len = htonl(len);
 
-  std::vector<char> result;
-  result.resize(4 + len);
+  std::vector<char> result(4 + len);
   std::memcpy(result.data() + 4, &net_len, 4);
 
   if (len > 0) {

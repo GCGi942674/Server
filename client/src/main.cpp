@@ -13,7 +13,7 @@ int main(){
 
     string input;
     while(true){
-        cout << ">>";
+        cout << "Client: ";
         getline(cin, input);
         if(input == "exit") break;
 
@@ -22,7 +22,7 @@ int main(){
             cerr << "Communication error." << endl;
             break;
         }
-        cout << response << endl;
+        cout << "Server: " << response << endl;
     }
 
     client.disconnect();

@@ -17,7 +17,6 @@ EchoClient::~EchoClient() {
 
 bool EchoClient::connect() {
   this->sockfd_ = socket(AF_INET, SOCK_STREAM, 0);
-  std::cout << this->sockfd_ << std::endl;
   if (this->sockfd_ == -1)
     return false;
 
@@ -26,7 +25,6 @@ bool EchoClient::connect() {
   serv_addr.sin_port = htons(this->server_port_);
   if (inet_pton(AF_INET, this->server_ip_.c_str(), &serv_addr.sin_addr) <= 0) {
     close(this->sockfd_);
-    std::cout << this->sockfd_ << std::endl;
     this->sockfd_ = 1;
     return false;
   }

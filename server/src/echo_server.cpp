@@ -65,29 +65,35 @@ void EchoServer::handleeAccept() {
 void EchoServer::handleClient(int client_fd) {
   char buffer[1024];
   while (true) {
-    int n = recv(client_fd, buffer, sizeof(buffer), 0);
+    ssize_t n = recv(client_fd, buffer, sizeof(buffer), 0);
     if (n > 0) {
-      decoders_[client_fd].append(buffer, n);
+      this->decoders_[client_fd].append(buffer, n);
 
       std::string msg;
-      while (decoders_[client_fd].tryDecode(msg)) {
+      while (this->decoders_[client_fd].tryDecode(msg)) {
         auto resp = MessageCodec::encode(msg);
-        sendAll(client_fd, resp.data(), resp.size());
+        if (!sendAll(client_fd, resp.data(), resp.size())) {
+          epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
+          close(client_fd);
+          this->decoders_.erase(client_fd);
+          return;
+        }
       }
+
     } else if (n == 0) {
       epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
       close(client_fd);
-      decoders_.erase(client_fd);
-      break;
+      this->decoders_.erase(client_fd);
+      return;
     } else {
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
         break;
       } else {
         epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
         close(client_fd);
-        decoders_.erase(client_fd);
-        break;
+        this->decoders_.erase(client_fd);
       }
+      return;
     }
   }
 }

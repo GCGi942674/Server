@@ -69,9 +69,9 @@ void EchoServer::handleClient(int client_fd) {
     if (n > 0) {
       this->decoders_[client_fd].append(buffer, n);
 
-      std::string msg;
-      while (this->decoders_[client_fd].tryDecode(msg)) {
-        auto resp = MessageCodec::encode(msg);
+      std::string message;
+      while (this->decoders_[client_fd].tryDecode(message)) { // 潜在风险operator[], 可能会使用已经失效的链接， 最好先find，然后使用iter去操作
+        auto resp = MessageCodec::encode(message);
         if (!sendAll(client_fd, resp.data(), resp.size())) {
           epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
           close(client_fd);
@@ -79,7 +79,6 @@ void EchoServer::handleClient(int client_fd) {
           return;
         }
       }
-
     } else if (n == 0) {
       epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
       close(client_fd);
@@ -92,8 +91,8 @@ void EchoServer::handleClient(int client_fd) {
         epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
         close(client_fd);
         this->decoders_.erase(client_fd);
+        return;
       }
-      return;
     }
   }
 }

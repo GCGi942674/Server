@@ -14,7 +14,7 @@ public:
   void run();
 
 private:
-  void handleeAccept();
+  void handleAccept();
   void handleClient(int client_fd);
   void removeConnection(int client_fd);
   void updateEpoll(int client_fd, bool want_wrtie);

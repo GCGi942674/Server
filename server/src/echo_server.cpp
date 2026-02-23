@@ -43,7 +43,7 @@ void EchoServer::run() {
       int fd = events[i].data.fd;
 
       if (this->listen_fd_ == fd) {
-        this->handleeAccept();
+        this->handleAccept();
         continue;
       }
 
@@ -72,7 +72,7 @@ void EchoServer::run() {
   }
 }
 
-void EchoServer::handleeAccept() {
+void EchoServer::handleAccept() {
   int client_fd = accept(this->listen_fd_, nullptr, nullptr);
   if (client_fd > 0) {
     setNonBlocking(client_fd);

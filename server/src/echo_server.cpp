@@ -44,9 +44,30 @@ void EchoServer::run() {
 
       if (this->listen_fd_ == fd) {
         this->handleeAccept();
-      } else {
-        this->handleClient(fd);
+        continue;
       }
+
+      auto iter = this->connections_.find(fd);
+      if (iter == this->connections_.end()) {
+        continue;
+      }
+      Connection *conn = iter->second.get();
+
+      if (events[i].events & EPOLLIN) {
+        if (!conn->handleRead()) {
+          this->removeConnection(fd);
+          continue;
+        }
+      }
+
+      if (events[i].events & EPOLLOUT) {
+        if (!conn->handleWrite()) {
+          this->removeConnection(fd);
+          continue;
+        }
+      }
+
+      this->updateEpoll(fd, conn->wantWrite());
     }
   }
 }
@@ -55,6 +76,8 @@ void EchoServer::handleeAccept() {
   int client_fd = accept(this->listen_fd_, nullptr, nullptr);
   if (client_fd > 0) {
     setNonBlocking(client_fd);
+    this->connections_.emplace(client_fd,
+                               std::make_unique<Connection>(client_fd));
     epoll_event cev{};
     cev.events = EPOLLIN;
     cev.data.fd = client_fd;
@@ -62,37 +85,53 @@ void EchoServer::handleeAccept() {
   }
 }
 
-void EchoServer::handleClient(int client_fd) {
-  char buffer[1024];
-  while (true) {
-    ssize_t n = recv(client_fd, buffer, sizeof(buffer), 0);
-    if (n > 0) {
-      this->decoders_[client_fd].append(buffer, n);
+// void EchoServer::handleClient(int client_fd) {
+//   char buffer[1024];
+//   while (true) {
+//     ssize_t n = recv(client_fd, buffer, sizeof(buffer), 0);
+//     if (n > 0) {
+//       this->decoders_[client_fd].append(buffer, n);
+//       std::string message;
+//       while (this->decoders_[client_fd].tryDecode(
+//           message)) { // 潜在风险operator[], 可能会使用已经失效的链接，
+//                       // 最好先find，然后使用iter去操作
+//         auto resp = MessageCodec::encode(message);
+//         if (!sendAll(client_fd, resp.data(), resp.size())) {
+//           epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
+//           close(client_fd);
+//           this->decoders_.erase(client_fd);
+//           return;
+//         }
+//       }
+//     } else if (n == 0) {
+//       epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
+//       close(client_fd);
+//       this->decoders_.erase(client_fd);
+//       return;
+//     } else {
+//       if (errno == EAGAIN || errno == EWOULDBLOCK) {
+//         break;
+//       } else {
+//         epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
+//         close(client_fd);
+//         this->decoders_.erase(client_fd);
+//         return;
+//       }
+//     }
+//   }
+// }
 
-      std::string message;
-      while (this->decoders_[client_fd].tryDecode(message)) { // 潜在风险operator[], 可能会使用已经失效的链接， 最好先find，然后使用iter去操作
-        auto resp = MessageCodec::encode(message);
-        if (!sendAll(client_fd, resp.data(), resp.size())) {
-          epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
-          close(client_fd);
-          this->decoders_.erase(client_fd);
-          return;
-        }
-      }
-    } else if (n == 0) {
-      epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
-      close(client_fd);
-      this->decoders_.erase(client_fd);
-      return;
-    } else {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        break;
-      } else {
-        epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
-        close(client_fd);
-        this->decoders_.erase(client_fd);
-        return;
-      }
-    }
+void EchoServer::removeConnection(int client_fd) {
+  epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
+  this->connections_.erase(client_fd);
+}
+
+void EchoServer::updateEpoll(int client_fd, bool want_write) {
+  struct epoll_event ev;
+  ev.data.fd = client_fd;
+  ev.events = EPOLLIN;
+  if (want_write) {
+    ev.events |= EPOLLOUT;
   }
+  epoll_ctl(this->epfd_, EPOLL_CTL_MOD, client_fd, &ev);
 }

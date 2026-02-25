@@ -3,7 +3,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-Connection::Connection(int fd) : fd_(fd) {}
+Connection::Connection(int fd, EchoHandler& handler) : fd_(fd), handler_(handler) {}
 
 Connection::~Connection() { close(this->fd_); }
 
@@ -19,7 +19,8 @@ bool Connection::handleRead() {
       this->decoder_.append(buffer, n);
       std::string message;
       while (this->decoder_.tryDecode(message)) {
-        auto resp = MessageCodec::encode(message);
+        auto body_msg = this->handler_.onMessage(message);
+        auto resp = MessageCodec::encode(body_msg);
         this->wirte_buffer.append(resp.data(), resp.size());
       }
     } else if (n == 0) {

@@ -1,7 +1,8 @@
-#include "echo_server.h"
+#include "EchoServer.h"
 
 int main(){
-  EchoServer server(8080);
+  EchoHandler handler;
+  EchoServer server(8080, handler);
   server.run();
   return 0;
 }

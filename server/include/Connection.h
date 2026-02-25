@@ -2,11 +2,12 @@
 #define CONNECTION_H
 
 #include "protocol/message_codec.h"
+#include "EchoHandler.h"
 #include <string>
 
 class Connection {
 public:
-  explicit Connection(int fd);
+  explicit Connection(int fd, EchoHandler& handler);
   ~Connection();
   int fd() const;
 
@@ -20,6 +21,7 @@ public:
   bool wantWrite() const;
 
 private:
+  EchoHandler& handler_;
   int fd_;
   MessageCodec::Decoder decoder_;
   std::string wirte_buffer;

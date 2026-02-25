@@ -3,7 +3,8 @@
 add_executable(server
     src/main.cpp
     src/Connection.cpp
-    src/echo_server.cpp
+    src/EchoServer.cpp
+    src/EchoHandler.cpp
 )
 
 target_include_directories(server

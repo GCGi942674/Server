@@ -1,4 +1,4 @@
-dd2026/1/10 18:42:46
+2026/1/10 18:42:46
 Telegram Desktop
 ------------------------------------------------------------
 删除注册表键值成功 = HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\CloudStore\Store\DefaultAccount\Current\{bde8970b-a568-4371-9133-d00cfa55fb4c}$windows.data.apps.appmetadata$appmetadatalist\windows.data.apps.appmetadata${53f49750-6209-4fbf-9ca8-7a333c87d1ed}_is1|Data

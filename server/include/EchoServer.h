@@ -2,6 +2,7 @@
 #define ECHO_SERVER_H
 
 #include "Connection.h"
+#include "EchoHandler.h"
 #include "protocol/message_codec.h"
 #include <memory>
 #include <sys/epoll.h>
@@ -9,7 +10,7 @@
 
 class EchoServer {
 public:
-  EchoServer(int port);
+  EchoServer(int port, EchoHandler& handler);
   ~EchoServer();
   void run();
 
@@ -19,6 +20,7 @@ private:
   void removeConnection(int client_fd);
   void updateEpoll(int client_fd, bool want_wrtie);
 
+  EchoHandler& handler_;
   std::unordered_map<int, std::unique_ptr<Connection>> connections_;
   int listen_fd_;
   int epfd_;

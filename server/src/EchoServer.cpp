@@ -1,4 +1,4 @@
-#include "echo_server.h"
+#include "EchoServer.h"
 #include "utils.h" // 来自 common
 #include <arpa/inet.h>
 #include <cerrno>
@@ -6,7 +6,7 @@
 #include <iostream>
 #include <unistd.h>
 
-EchoServer::EchoServer(int port) : listen_fd_(-1), epfd_(-1), port_(port) {}
+EchoServer::EchoServer(int port, EchoHandler& handler) : listen_fd_(-1), epfd_(-1), port_(port), handler_(handler) {}
 
 EchoServer::~EchoServer() {
   if (this->listen_fd_ != -1) {
@@ -77,7 +77,7 @@ void EchoServer::handleAccept() {
   if (client_fd > 0) {
     setNonBlocking(client_fd);
     this->connections_.emplace(client_fd,
-                               std::make_unique<Connection>(client_fd));
+                               std::make_unique<Connection>(client_fd, this->handler_));
     epoll_event cev{};
     cev.events = EPOLLIN;
     cev.data.fd = client_fd;

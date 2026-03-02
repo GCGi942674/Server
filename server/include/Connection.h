@@ -2,14 +2,19 @@
 #define CONNECTION_H
 
 #include "protocol/message_codec.h"
-#include "EchoHandler.h"
+#include <functional>
 #include <string>
 
 class Connection {
 public:
-  explicit Connection(int fd, EchoHandler& handler);
+  using MessageCallback = std::function<void(int, const std::string &)>;
+
+public:
+  explicit Connection(int fd);
   ~Connection();
   int fd() const;
+
+  void setMessageCallback(MessageCallback cb);
 
   //处理读事件
   bool handleRead();
@@ -20,9 +25,11 @@ public:
   //是否需要监听写事件
   bool wantWrite() const;
 
+  void sendPacket(const std::vector<char>& packet);
+
 private:
-  EchoHandler& handler_;
   int fd_;
+  MessageCallback on_message_;
   MessageCodec::Decoder decoder_;
   std::string wirte_buffer;
 };

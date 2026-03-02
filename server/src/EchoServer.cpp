@@ -6,7 +6,8 @@
 #include <iostream>
 #include <unistd.h>
 
-EchoServer::EchoServer(int port, EchoHandler& handler) : listen_fd_(-1), epfd_(-1), port_(port), handler_(handler) {}
+EchoServer::EchoServer(int port, EchoHandler &handler)
+    : listen_fd_(-1), epfd_(-1), port_(port), handler_(handler) {}
 
 EchoServer::~EchoServer() {
   if (this->listen_fd_ != -1) {
@@ -15,6 +16,15 @@ EchoServer::~EchoServer() {
 
   if (this->epfd_ != -1) {
     close(this->epfd_);
+  }
+}
+
+void EchoServer::onMessage(int fd, const std::string &msg) {
+  auto resp_body = this->handler_.onMessage(msg);
+  auto packet = MessageCodec::encode(resp_body);
+  auto iter = this->connections_.find(fd);
+  if (iter != this->connections_.end()) {
+    iter->second->sendPacket(packet);
   }
 }
 
@@ -77,7 +87,15 @@ void EchoServer::handleAccept() {
   if (client_fd > 0) {
     setNonBlocking(client_fd);
     this->connections_.emplace(client_fd,
-                               std::make_unique<Connection>(client_fd, this->handler_));
+                               std::make_unique<Connection>(client_fd));
+    auto iter = this->connections_.find(client_fd);
+    if (iter != this->connections_.end()) {
+      iter->second->setMessageCallback(
+          [this](int fd, const std::string &msg) -> void {
+            this->onMessage(fd, msg);
+          });
+    }
+
     epoll_event cev{};
     cev.events = EPOLLIN;
     cev.data.fd = client_fd;

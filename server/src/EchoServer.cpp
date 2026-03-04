@@ -63,6 +63,13 @@ void EchoServer::run() {
       }
       Connection *conn = iter->second.get();
 
+      uint32_t ev = events[i].events;
+
+      if (ev & EPOLLERR | EPOLLHUP | EPOLLRDHUP) {
+        this->removeConnection(fd);
+        return;
+      }
+
       if (events[i].events & EPOLLIN) {
         if (!conn->handleRead()) {
           this->removeConnection(fd);
@@ -97,9 +104,15 @@ void EchoServer::handleAccept() {
     }
 
     epoll_event cev{};
-    cev.events = EPOLLIN;
+    cev.events = EPOLLIN | EPOLLRDHUP;
     cev.data.fd = client_fd;
     epoll_ctl(this->epfd_, EPOLL_CTL_ADD, client_fd, &cev);
+  } else {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      return;
+    } else {
+      strerror(errno);
+    }
   }
 }
 
@@ -111,7 +124,7 @@ void EchoServer::removeConnection(int client_fd) {
 void EchoServer::updateEpoll(int client_fd, bool want_write) {
   struct epoll_event ev;
   ev.data.fd = client_fd;
-  ev.events = EPOLLIN;
+  ev.events = EPOLLIN | EPOLLRDHUP;
   if (want_write) {
     ev.events |= EPOLLOUT;
   }

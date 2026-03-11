@@ -68,6 +68,14 @@ void EchoServer::run() {
   while (true) {
     int nready = epoll_wait(this->epfd_, events, 1024, -1);
 
+    if (nready < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      std::cerr << "epoll_wait error: " << strerror(errno) << std::endl;
+      break;
+    }
+
     this->doPendingTasks();
 
     for (int i = 0; i < nready; ++i) {
@@ -153,12 +161,11 @@ void EchoServer::removeConnection(int client_fd) {
 void EchoServer::queueInLoop(std::function<void()> task) {
   bool wake_up = false;
   {
-    this->mutex_.lock();
+    std::lock_guard<std::mutex> lock(this->mutex_);
     if (this->pending_tasks_.empty()) {
       wake_up = true;
     }
-    this->pending_tasks_.push(task);
-    this->mutex_.unlock();
+    this->pending_tasks_.push(std::move(task));
   }
   if (wake_up) {
     uint64_t one = 1;

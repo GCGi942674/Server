@@ -25,6 +25,8 @@ public:
   //是否需要监听写事件
   bool wantWrite() const;
 
+  void send(const std::string& data);
+
   void sendPacket(const std::vector<char>& packet);
 
 private:

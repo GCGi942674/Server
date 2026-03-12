@@ -3,6 +3,7 @@
 
 #include "Connection.h"
 #include "EchoHandler.h"
+#include "EventLoop.h"
 #include "protocol/message_codec.h"
 #include "thread_pool.h"
 #include <functional>
@@ -18,24 +19,19 @@ public:
   ~EchoServer();
   void run();
   void onMessage(int fd, const std::string &msg);
-  void queueInLoop(std::function<void()> task);
-  void doPendingTasks();
 
 private:
   void handleAccept();
-  void handleClient(int client_fd);
+  void handleClientEvent(int client_fd, uint32_t events);
   void removeConnection(int client_fd);
-  void updateEpoll(int client_fd, bool want_wrtie);
+  void updateConnectionEvent(int client_fd, bool want_wrtie);
 
   EchoHandler &handler_;
+  EventLoop loop_;
   std::unordered_map<int, std::unique_ptr<Connection>> connections_;
   int listen_fd_;
-  int epfd_;
   int port_;
-  int wakeup_fd_;
   ThreadPool pool_;
-  std::mutex mutex_;
-  std::queue<std::function<void()>> pending_tasks_;
 };
 
 #endif // ECHO_SERVER_H

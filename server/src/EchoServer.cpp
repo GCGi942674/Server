@@ -8,20 +8,12 @@
 #include <unistd.h>
 
 EchoServer::EchoServer(int port, EchoHandler &handler)
-    : listen_fd_(-1), epfd_(-1), port_(port), handler_(handler),
-      wakeup_fd_(-1) {}
+    : listen_fd_(-1), port_(port), handler_(handler) {}
 
 EchoServer::~EchoServer() {
   if (this->listen_fd_ != -1) {
     close(this->listen_fd_);
-  }
-
-  if (this->epfd_ != -1) {
-    close(this->epfd_);
-  }
-
-  if (this->wakeup_fd_ != -1) {
-    close(this->wakeup_fd_);
+    this->listen_fd_ = -1;
   }
 }
 
@@ -29,13 +21,13 @@ void EchoServer::onMessage(int fd, const std::string &msg) {
   this->pool_.addTask([this, fd, msg]() -> void {
     auto resp = this->handler_.onMessage(msg);
     auto packet = MessageCodec::encode(resp);
-    this->queueInLoop([this, fd, packet]() -> void {
+    this->loop_.queueInLoop([this, fd, packet]() -> void {
       auto iter = this->connections_.find(fd);
       if (iter == this->connections_.end()) {
         return;
       }
       iter->second->sendPacket(packet);
-      this->updateEpoll(fd, iter->second->wantWrite());
+      this->updateConnectionEvent(fd, iter->second->wantWrite());
     });
   });
 }
@@ -52,75 +44,10 @@ void EchoServer::run() {
   bind(this->listen_fd_, (sockaddr *)&addr, sizeof(addr));
   listen(this->listen_fd_, 128);
 
-  this->epfd_ = epoll_create1(0);
-  epoll_event ev{};
-  ev.events = EPOLLIN;
-  ev.data.fd = this->listen_fd_;
-  epoll_ctl(this->epfd_, EPOLL_CTL_ADD, this->listen_fd_, &ev);
+  this->loop_.addFd(this->listen_fd_, EPOLLIN,
+                    [this](uint32_t event) { this->handleAccept(); });
 
-  this->wakeup_fd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-  epoll_event wev{};
-  wev.events = EPOLLIN;
-  wev.data.fd = this->wakeup_fd_;
-  epoll_ctl(this->epfd_, EPOLL_CTL_ADD, this->wakeup_fd_, &wev);
-
-  epoll_event events[1024];
-  while (true) {
-    int nready = epoll_wait(this->epfd_, events, 1024, -1);
-
-    if (nready < 0) {
-      if (errno == EINTR) {
-        continue;
-      }
-      std::cerr << "epoll_wait error: " << strerror(errno) << std::endl;
-      break;
-    }
-
-    this->doPendingTasks();
-
-    for (int i = 0; i < nready; ++i) {
-      int fd = events[i].data.fd;
-
-      if (this->listen_fd_ == fd) {
-        this->handleAccept();
-        continue;
-      }
-
-      if (this->wakeup_fd_ == fd) {
-        this->doPendingTasks();
-        continue;
-      }
-
-      auto iter = this->connections_.find(fd);
-      if (iter == this->connections_.end()) {
-        continue;
-      }
-      Connection *conn = iter->second.get();
-
-      uint32_t ev = events[i].events;
-
-      if (ev & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
-        this->removeConnection(fd);
-        continue;
-      }
-
-      if (events[i].events & EPOLLIN) {
-        if (!conn->handleRead()) {
-          this->removeConnection(fd);
-          continue;
-        }
-      }
-
-      if (events[i].events & EPOLLOUT) {
-        if (!conn->handleWrite()) {
-          this->removeConnection(fd);
-          continue;
-        }
-      }
-
-      this->updateEpoll(fd, conn->wantWrite());
-    }
-  }
+  this->loop_.loop();
 }
 
 void EchoServer::handleAccept() {
@@ -138,10 +65,10 @@ void EchoServer::handleAccept() {
             });
       }
 
-      epoll_event cev{};
-      cev.events = EPOLLIN | EPOLLRDHUP;
-      cev.data.fd = client_fd;
-      epoll_ctl(this->epfd_, EPOLL_CTL_ADD, client_fd, &cev);
+      this->loop_.addFd(client_fd, EPOLLIN | EPOLLRDHUP,
+                        [this, client_fd](uint32_t events) {
+                          this->handleClientEvent(client_fd, events);
+                        });
     } else {
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
         break;
@@ -153,48 +80,43 @@ void EchoServer::handleAccept() {
   }
 }
 
+void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
+  auto iter = this->connections_.find(client_fd);
+  if (iter == this->connections_.end()) {
+    return;
+  }
+  Connection *conn = iter->second.get();
+
+  if (events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
+    this->removeConnection(client_fd);
+    return;
+  }
+
+  if (events & EPOLLIN) {
+    if (!conn->handleRead()) {
+      this->removeConnection(client_fd);
+      return;
+    }
+  }
+
+  if (events & EPOLLOUT) {
+    if (!conn->handleWrite()) {
+      this->removeConnection(client_fd);
+      return;
+    }
+  }
+  this->updateConnectionEvent(client_fd, iter->second->wantWrite());
+}
+
 void EchoServer::removeConnection(int client_fd) {
-  epoll_ctl(this->epfd_, EPOLL_CTL_DEL, client_fd, nullptr);
+  this->loop_.removeFd(client_fd);
   this->connections_.erase(client_fd);
 }
 
-void EchoServer::queueInLoop(std::function<void()> task) {
-  bool wake_up = false;
-  {
-    std::lock_guard<std::mutex> lock(this->mutex_);
-    if (this->pending_tasks_.empty()) {
-      wake_up = true;
-    }
-    this->pending_tasks_.push(std::move(task));
-  }
-  if (wake_up) {
-    uint64_t one = 1;
-    ssize_t n = write(this->wakeup_fd_, &one, sizeof(one));
-    (void)n;
-  }
-}
-
-void EchoServer::doPendingTasks() {
-  std::queue<std::function<void()>> tasks;
-  {
-    std::lock_guard<std::mutex> lock(this->mutex_);
-    if (this->pending_tasks_.empty()) {
-      return;
-    }
-    tasks.swap(this->pending_tasks_);
-  }
-  while (!tasks.empty()) {
-    tasks.front()();
-    tasks.pop();
-  }
-}
-
-void EchoServer::updateEpoll(int client_fd, bool want_write) {
-  struct epoll_event ev;
-  ev.data.fd = client_fd;
-  ev.events = EPOLLIN | EPOLLRDHUP;
+void EchoServer::updateConnectionEvent(int client_fd, bool want_write) {
+  uint32_t events = EPOLLIN | EPOLLRDHUP;
   if (want_write) {
-    ev.events |= EPOLLOUT;
+    events |= EPOLLOUT;
   }
-  epoll_ctl(this->epfd_, EPOLL_CTL_MOD, client_fd, &ev);
+  this->loop_.updateFd(client_fd, events);
 }

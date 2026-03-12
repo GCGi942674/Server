@@ -4,6 +4,7 @@ add_executable(server
     src/main.cpp
     src/Connection.cpp
     src/EchoServer.cpp
+    src/EventLoop.cpp
     src/EchoHandler.cpp
 )
 

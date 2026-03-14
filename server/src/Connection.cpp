@@ -4,7 +4,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-Connection::Connection(int fd) : fd_(fd) {}
+Connection::Connection(int fd) : fd_(fd), state_(ConnState::Connected) {}
 
 Connection::~Connection() {
   if (this->fd_ != -1) {
@@ -30,11 +30,16 @@ bool Connection::handleRead() {
         }
       }
     } else if (n == 0) {
+      this->setState(ConnState::Disconnected);
       return false; //客户端关闭
     } else {
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
         break;
       }
+      if (errno == EINTR) {
+        continue;
+      }
+      this->setState(ConnState::Disconnected);
       return false;
     }
   }
@@ -42,11 +47,11 @@ bool Connection::handleRead() {
 }
 
 bool Connection::handleWrite() {
-  while (!this->wirte_buffer.empty()) {
-    ssize_t n = ::send(this->fd_, this->wirte_buffer.data(),
-                       this->wirte_buffer.size(), 0);
+  while (!this->write_buffer_.empty()) {
+    ssize_t n = ::send(this->fd_, this->write_buffer_.data(),
+                       this->write_buffer_.size(), 0);
     if (n > 0) {
-      this->wirte_buffer.erase(0, n);
+      this->write_buffer_.erase(0, n);
     } else if (n < 0) {
       if (errno == EINTR) {
         continue;
@@ -54,8 +59,10 @@ bool Connection::handleWrite() {
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
         return true;
       }
+      this->setState(ConnState::Disconnected);
       return false;
     } else {
+      this->setState(ConnState::Disconnected);
       return false;
     }
   }
@@ -67,9 +74,25 @@ void Connection::setMessageCallback(MessageCallback cb) {
 }
 
 void Connection::sendPacket(const std::vector<char> &packet) {
-  this->wirte_buffer.append(packet.data(), packet.size());
+  this->write_buffer_.append(packet.data(), packet.size());
 }
 
-void Connection::send(const std::string &data) { this->wirte_buffer += data; }
+void Connection::send(const std::string &data) { this->write_buffer_ += data; }
 
-bool Connection::wantWrite() const { return !this->wirte_buffer.empty(); }
+bool Connection::wantWrite() const { return !this->write_buffer_.empty(); }
+
+Connection::ConnState Connection::state() const { return this->state_; }
+
+void Connection::setState(Connection::ConnState st) { this->state_ = st; }
+
+bool Connection::isConnected() const {
+  return this->state_ == Connection::ConnState::Connected;
+}
+
+bool Connection::isDisconnecting() const {
+  return this->state_ == Connection::ConnState::Disconnecting;
+}
+
+bool Connection::isDisconnected() const {
+  return this->state_ == Connection::ConnState::Disconnected;
+}

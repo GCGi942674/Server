@@ -8,7 +8,7 @@
 #include <unistd.h>
 
 EchoServer::EchoServer(int port, EchoHandler &handler)
-    : acceptor_(&loop_, port), handler_(handler) {}
+    : handler_(handler), acceptor_(&loop_, port) {}
 
 EchoServer::~EchoServer() {}
 
@@ -19,6 +19,9 @@ void EchoServer::onMessage(int fd, const std::string &msg) {
     this->loop_.queueInLoop([this, fd, packet]() -> void {
       auto iter = this->connections_.find(fd);
       if (iter == this->connections_.end()) {
+        return;
+      }
+      if (!iter->second->isConnected()) {
         return;
       }
       iter->second->sendPacket(packet);
@@ -40,6 +43,11 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
     return;
   }
   Connection *conn = iter->second.get();
+
+  if (conn->isDisconnected()) {
+    this->removeConnection(client_fd);
+    return;
+  }
 
   if (events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
     this->removeConnection(client_fd);
@@ -65,7 +73,7 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
 void EchoServer::handleNewConnection(int client_fd) {
 
   auto conn = std::make_unique<Connection>(client_fd);
-  
+
   Connection *conn_ptr = conn.get();
   this->connections_.emplace(client_fd, std::move(conn));
 
@@ -73,13 +81,18 @@ void EchoServer::handleNewConnection(int client_fd) {
     this->onMessage(client_fd, msg);
   });
 
-  this->loop_.addFd(client_fd, EPOLLIN | EPOLLHUP,
+  this->loop_.addFd(client_fd, EPOLLIN | EPOLLRDHUP,
                     [this, client_fd](uint32_t events) {
                       this->handleClientEvent(client_fd, events);
                     });
 }
 
 void EchoServer::removeConnection(int client_fd) {
+  auto iter = this->connections_.find(client_fd);
+  if (iter == this->connections_.end()) {
+    return;
+  }
+  iter->second->setState(Connection::ConnState::Disconnected);
   this->loop_.removeFd(client_fd);
   this->connections_.erase(client_fd);
 }

@@ -1,4 +1,4 @@
-#include "echo_client.h"
+#include "EchoClient.h"
 #include "protocol/message_codec.h"
 #include "utils.h"
 #include <arpa/inet.h>
@@ -48,7 +48,7 @@ bool EchoClient::sendMessage(const std::string &msg, std::string &response) {
 
   char recv_buf[1024];
   while (true) {
-    size_t n = recv(this->sockfd_, recv_buf, sizeof(recv_buf), 0);
+    ssize_t n = recv(this->sockfd_, recv_buf, sizeof(recv_buf), 0);
     if (n < 0)
       return false;
     decoder.append(recv_buf, n);
@@ -59,7 +59,7 @@ bool EchoClient::sendMessage(const std::string &msg, std::string &response) {
 }
 
 void EchoClient::disconnect() {
-  if (this->sockfd_ == -1) {
+  if (this->sockfd_ != -1) {
     close(this->sockfd_);
     this->sockfd_ = -1;
   }

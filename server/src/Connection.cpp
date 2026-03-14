@@ -1,5 +1,6 @@
 #include "Connection.h"
 #include <errno.h>
+#include <iostream>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -15,7 +16,7 @@ Connection::~Connection() {
 int Connection::fd() const { return fd_; }
 
 bool Connection::handleRead() {
-  char buffer[1024];
+  char buffer[4096];
 
   while (true) {
     ssize_t n = recv(this->fd_, buffer, sizeof(buffer), 0);

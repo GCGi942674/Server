@@ -1,6 +1,7 @@
 #ifndef ECHO_SERVER_H
 #define ECHO_SERVER_H
 
+#include "Acceptor.h"
 #include "Connection.h"
 #include "EchoHandler.h"
 #include "EventLoop.h"
@@ -21,16 +22,15 @@ public:
   void onMessage(int fd, const std::string &msg);
 
 private:
-  void handleAccept();
+  void handleNewConnection(int client_fd);
   void handleClientEvent(int client_fd, uint32_t events);
   void removeConnection(int client_fd);
   void updateConnectionEvent(int client_fd, bool want_wrtie);
 
   EchoHandler &handler_;
+  Acceptor acceptor_;
   EventLoop loop_;
   std::unordered_map<int, std::unique_ptr<Connection>> connections_;
-  int listen_fd_;
-  int port_;
   ThreadPool pool_;
 };
 

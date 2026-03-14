@@ -8,14 +8,9 @@
 #include <unistd.h>
 
 EchoServer::EchoServer(int port, EchoHandler &handler)
-    : listen_fd_(-1), port_(port), handler_(handler) {}
+    : acceptor_(&loop_, port), handler_(handler) {}
 
-EchoServer::~EchoServer() {
-  if (this->listen_fd_ != -1) {
-    close(this->listen_fd_);
-    this->listen_fd_ = -1;
-  }
-}
+EchoServer::~EchoServer() {}
 
 void EchoServer::onMessage(int fd, const std::string &msg) {
   this->pool_.addTask([this, fd, msg]() -> void {
@@ -33,51 +28,10 @@ void EchoServer::onMessage(int fd, const std::string &msg) {
 }
 
 void EchoServer::run() {
-  this->listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
-  setNonBlocking(listen_fd_);
-
-  sockaddr_in addr{};
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons(this->port_);
-  addr.sin_addr.s_addr = INADDR_ANY;
-
-  bind(this->listen_fd_, (sockaddr *)&addr, sizeof(addr));
-  listen(this->listen_fd_, 128);
-
-  this->loop_.addFd(this->listen_fd_, EPOLLIN,
-                    [this](uint32_t event) { this->handleAccept(); });
-
+  this->acceptor_.setNewConnectionCallback(
+      [this](int client_fd) { this->handleNewConnection(client_fd); });
+  this->acceptor_.startListen();
   this->loop_.loop();
-}
-
-void EchoServer::handleAccept() {
-  while (true) {
-    int client_fd = accept(this->listen_fd_, nullptr, nullptr);
-    if (client_fd >= 0) {
-      setNonBlocking(client_fd);
-      this->connections_.emplace(client_fd,
-                                 std::make_unique<Connection>(client_fd));
-      auto iter = this->connections_.find(client_fd);
-      if (iter != this->connections_.end()) {
-        iter->second->setMessageCallback(
-            [this](int fd, const std::string &msg) -> void {
-              this->onMessage(fd, msg);
-            });
-      }
-
-      this->loop_.addFd(client_fd, EPOLLIN | EPOLLRDHUP,
-                        [this, client_fd](uint32_t events) {
-                          this->handleClientEvent(client_fd, events);
-                        });
-    } else {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        break;
-      } else {
-        std::cerr << strerror(errno);
-        break;
-      }
-    }
-  }
 }
 
 void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
@@ -106,6 +60,23 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
     }
   }
   this->updateConnectionEvent(client_fd, iter->second->wantWrite());
+}
+
+void EchoServer::handleNewConnection(int client_fd) {
+
+  auto conn = std::make_unique<Connection>(client_fd);
+  
+  Connection *conn_ptr = conn.get();
+  this->connections_.emplace(client_fd, std::move(conn));
+
+  conn_ptr->setMessageCallback([this](int client_fd, const std::string &msg) {
+    this->onMessage(client_fd, msg);
+  });
+
+  this->loop_.addFd(client_fd, EPOLLIN | EPOLLHUP,
+                    [this, client_fd](uint32_t events) {
+                      this->handleClientEvent(client_fd, events);
+                    });
 }
 
 void EchoServer::removeConnection(int client_fd) {

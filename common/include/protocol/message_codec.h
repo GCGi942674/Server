@@ -1,6 +1,7 @@
 #ifndef MESSAGE_CODEC_H
 #define MESSAGE_CODEC_H
 
+#include "Buffer.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -11,12 +12,7 @@ public:
 
   class Decoder {
   public:
-    void append(const char *data, size_t len);
-    bool tryDecode(std::string &out_msg);
-    void reset();
-
-  private:
-    std::string buffer_;
+    static bool tryDecode(Buffer &buf, std::string &out_msg);
   };
 };
 

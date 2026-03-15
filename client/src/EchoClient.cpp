@@ -25,7 +25,7 @@ bool EchoClient::connect() {
   serv_addr.sin_port = htons(this->server_port_);
   if (inet_pton(AF_INET, this->server_ip_.c_str(), &serv_addr.sin_addr) <= 0) {
     close(this->sockfd_);
-    this->sockfd_ = 1;
+    this->sockfd_ = -1;
     return false;
   }
 
@@ -43,7 +43,6 @@ bool EchoClient::sendMessage(const std::string &msg, std::string &response) {
 
   if (!sendAll(this->sockfd_, encoded.data(), encoded.size()))
     return false;
-  static thread_local MessageCodec::Decoder decoder;
   // decoder.reset();
 
   char recv_buf[1024];
@@ -51,8 +50,8 @@ bool EchoClient::sendMessage(const std::string &msg, std::string &response) {
     ssize_t n = recv(this->sockfd_, recv_buf, sizeof(recv_buf), 0);
     if (n < 0)
       return false;
-    decoder.append(recv_buf, n);
-    if (decoder.tryDecode(response)) {
+    this->inputBuffer_.append(recv_buf, static_cast<size_t>(n));
+    if (MessageCodec::Decoder::tryDecode(this->inputBuffer_, response)) {
       return true;
     }
   }

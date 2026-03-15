@@ -22,13 +22,8 @@ bool Connection::handleRead() {
     ssize_t n = recv(this->fd_, buffer, sizeof(buffer), 0);
 
     if (n > 0) {
-      this->decoder_.append(buffer, n);
-      std::string msg;
-      while (this->decoder_.tryDecode(msg)) {
-        if (this->on_message_) {
-          this->on_message_(this->fd_, msg);
-        }
-      }
+      this->inputBuffer_.append(buffer, static_cast<size_t>(n));
+
     } else if (n == 0) {
       this->setState(ConnState::Disconnected);
       return false; //客户端关闭
@@ -43,15 +38,21 @@ bool Connection::handleRead() {
       return false;
     }
   }
+  std::string msg;
+  while (MessageCodec::Decoder::tryDecode(this->inputBuffer_, msg)) {
+    if (this->on_message_) {
+      this->on_message_(this->fd_, msg);
+    }
+  }
   return true;
 }
 
 bool Connection::handleWrite() {
-  while (!this->write_buffer_.empty()) {
-    ssize_t n = ::send(this->fd_, this->write_buffer_.data(),
-                       this->write_buffer_.size(), 0);
+  while (this->outputBuffer_.readableBytes() > 0) {
+    ssize_t n = ::send(this->fd_, this->outputBuffer_.peek(),
+                       this->outputBuffer_.readableBytes(), 0);
     if (n > 0) {
-      this->write_buffer_.erase(0, n);
+      this->outputBuffer_.retrieve(static_cast<size_t>(n));
     } else if (n < 0) {
       if (errno == EINTR) {
         continue;
@@ -74,12 +75,16 @@ void Connection::setMessageCallback(MessageCallback cb) {
 }
 
 void Connection::sendPacket(const std::vector<char> &packet) {
-  this->write_buffer_.append(packet.data(), packet.size());
+  this->outputBuffer_.append(packet.data(), packet.size());
 }
 
-void Connection::send(const std::string &data) { this->write_buffer_ += data; }
+void Connection::send(const std::string &data) {
+  this->outputBuffer_.append(data);
+}
 
-bool Connection::wantWrite() const { return !this->write_buffer_.empty(); }
+bool Connection::wantWrite() const {
+  return this->outputBuffer_.readableBytes() > 0;
+}
 
 Connection::ConnState Connection::state() const { return this->state_; }
 

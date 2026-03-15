@@ -4,6 +4,7 @@ add_library(common STATIC
     src/utils.cpp
     src/thread_pool.cpp
     src/logging.cpp
+    src/Buffer.cpp
     src/protocol/message_codec.cpp
 )
 

@@ -1,6 +1,7 @@
 #ifndef CONNECTION_H
 #define CONNECTION_H
 
+#include "Buffer.h"
 #include "protocol/message_codec.h"
 #include <functional>
 #include <string>
@@ -45,8 +46,9 @@ private:
   int fd_;
   ConnState state_;
   MessageCallback on_message_;
-  MessageCodec::Decoder decoder_;
-  std::string write_buffer_;
+
+  Buffer inputBuffer_;
+  Buffer outputBuffer_;
 };
 
 #endif

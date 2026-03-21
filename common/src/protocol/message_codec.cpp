@@ -7,27 +7,37 @@ std::vector<char> MessageCodec::encode(const std::string &msg) {
   uint32_t len = static_cast<uint32_t>(msg.size());
   uint32_t net_len = htonl(len);
 
-  std::vector<char> packet(4 + len);
-  std::memcpy(packet.data(), &net_len, 4);
+  std::vector<char> packet(kHeaderLength + len);
+  std::memcpy(packet.data(), &net_len, kHeaderLength);
 
   if (len > 0) {
-    std::memcpy(packet.data() + 4, msg.data(), len);
+    std::memcpy(packet.data() + kHeaderLength, msg.data(), len);
   }
   return packet;
 }
 
-bool MessageCodec::Decoder::tryDecode(Buffer &buf, std::string &out_msg) {
+MessageCodec::DecodeResult
+MessageCodec::Decoder::tryDecode(Buffer &buf, std::string &out_msg) {
   if (buf.readableBytes() < 4)
-    return false;
+    return MessageCodec::DecodeResult::NeedMoreData;
 
   uint32_t net_len;
-  std::memcpy(&net_len, buf.peek(), 4);
+  std::memcpy(&net_len, buf.peek(), kHeaderLength);
   uint32_t body_len = ntohl(net_len);
 
-  if (buf.readableBytes() < 4 + body_len)
-    return false;
+  if (body_len > kMaxBudyLenght) {
+    return MessageCodec::DecodeResult::Invaild;
+  }
 
-  buf.retrieve(4);
+  if (buf.readableBytes() < kHeaderLength + body_len)
+    return MessageCodec::DecodeResult::NeedMoreData;
+
+  buf.retrieve(kHeaderLength);
+
+  if (body_len == 0) {
+    out_msg.clear();
+    return MessageCodec::DecodeResult::Ok;
+  }
   out_msg = buf.retrieveAsString(body_len);
-  return true;
+  return MessageCodec::DecodeResult::Ok;
 }

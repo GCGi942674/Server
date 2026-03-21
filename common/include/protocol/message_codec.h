@@ -6,13 +6,20 @@
 #include <string>
 #include <vector>
 
+class Buffer;
+
 class MessageCodec {
 public:
+  static constexpr uint32_t kHeaderLength = 4;
+  static constexpr uint32_t kMaxBudyLenght = 1024 * 1024; // 1MB
+
+  enum class DecodeResult { Ok, NeedMoreData, Invaild };
+
   static std::vector<char> encode(const std::string &msg);
 
   class Decoder {
   public:
-    static bool tryDecode(Buffer &buf, std::string &out_msg);
+    static DecodeResult tryDecode(Buffer &buf, std::string &out_msg);
   };
 };
 

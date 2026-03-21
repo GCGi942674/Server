@@ -51,7 +51,8 @@ bool EchoClient::sendMessage(const std::string &msg, std::string &response) {
     if (n < 0)
       return false;
     this->inputBuffer_.append(recv_buf, static_cast<size_t>(n));
-    if (MessageCodec::Decoder::tryDecode(this->inputBuffer_, response)) {
+    if (MessageCodec::Decoder::tryDecode(this->inputBuffer_, response) ==
+        MessageCodec::DecodeResult::Ok) {
       return true;
     }
   }

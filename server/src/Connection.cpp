@@ -48,13 +48,29 @@ bool Connection::handleRead() {
     }
   }
   std::string msg;
-  while (MessageCodec::Decoder::tryDecode(this->inputBuffer_, msg)) {
-    LOG_INFO("message decoded, fd=" << this->fd_
-                                    << ", msg_size=" << msg.size());
-    if (this->on_message_) {
-      this->on_message_(this->fd_, msg);
-    } else {
-      LOG_WARN("message callback not set, fd=" << this->fd_);
+  while (true) {
+    auto result = MessageCodec::Decoder::tryDecode(this->inputBuffer_, msg);
+
+    if (result == MessageCodec::DecodeResult::Ok) {
+      LOG_INFO("message decoded, fd=" << this->fd_
+                                      << ", msg_size=" << msg.size());
+      if (this->on_message_) {
+        this->on_message_(this->fd_, msg);
+      } else {
+        LOG_WARN("message callback not set, fd=" << this->fd_);
+      }
+      continue;
+    }
+
+    if (result == MessageCodec::DecodeResult::NeedMoreData) {
+      LOG_DEBUG("decode need more data, fd=" << this->fd_);
+      break;
+    }
+
+    if (result == MessageCodec::DecodeResult::Invaild) {
+      LOG_WARN("invalid packet, fd = " << this->fd_);
+      this->setState(ConnState::Disconnected);
+      return false;
     }
   }
   return true;

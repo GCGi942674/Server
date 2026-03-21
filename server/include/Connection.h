@@ -42,6 +42,10 @@ public:
 
   bool isDisconnected() const;
 
+  void shutdown();
+
+  bool shouldCloseAfterWrite() const;
+
 private:
   int fd_;
   ConnState state_;

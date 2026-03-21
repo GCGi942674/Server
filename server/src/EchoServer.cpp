@@ -36,9 +36,8 @@ void EchoServer::onMessage(int fd, const std::string &msg) {
         LOG_WARN("connection not found when sending response, fd=" << fd);
         return;
       }
-      if (!iter->second->isConnected()) {
-        LOG_WARN(
-            "connection already disconnected when sending response, fd=" << fd);
+      if (!iter->second->isConnected() && !iter->second->isDisconnecting()) {
+        LOG_WARN("connection already full disconnected, fd=" << fd);
         return;
       }
       iter->second->sendPacket(packet);
@@ -73,9 +72,9 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
     return;
   }
 
-  if (events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
-    LOG_WARN("connection got close/error event, fd=" << client_fd
-                                                     << ", events=" << events);
+  if (events & (EPOLLERR | EPOLLHUP)) {
+    LOG_WARN("epoll error/hup, remove connection, fd="
+             << client_fd << ", events=" << events);
     this->removeConnection(client_fd);
     return;
   }
@@ -95,6 +94,17 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
       return;
     }
   }
+
+  if (events & EPOLLRDHUP) {
+    LOG_INFO("peer rdhup, fd = " << client_fd);
+    conn->shutdown();
+
+    if (conn->shouldCloseAfterWrite()) {
+      this->removeConnection(client_fd);
+      return;
+    }
+  }
+
   this->updateConnectionEvent(client_fd, iter->second->wantWrite());
 }
 

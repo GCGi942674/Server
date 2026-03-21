@@ -32,8 +32,8 @@ bool Connection::handleRead() {
 
     } else if (n == 0) {
       LOG_INFO("peer closed connection, fd=" << this->fd_);
-      this->setState(ConnState::Disconnected);
-      return false; //客户端关闭
+      this->shutdown();
+      break;
     } else {
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
         break;
@@ -67,17 +67,29 @@ bool Connection::handleRead() {
       break;
     }
 
-    if (result == MessageCodec::DecodeResult::Invaild) {
-      LOG_WARN("invalid packet, fd = " << this->fd_);
-      this->setState(ConnState::Disconnected);
-      return false;
-    }
+    LOG_WARN("invalid packet, fd = " << this->fd_);
+    this->setState(ConnState::Disconnected);
+    return false;
   }
+
+  if (this->shouldCloseAfterWrite()) {
+    LOG_INFO("connection should be close after read, fd = " << this->fd_);
+    return false;
+  }
+
   return true;
 }
 
 bool Connection::handleWrite() {
   while (this->outputBuffer_.readableBytes() > 0) {
+
+    if (this->shouldCloseAfterWrite()) {
+      LOG_INFO("write buffer drained, closing disconnecting connection, fd = "
+               << this->fd_);
+      this->setState(ConnState::Disconnected);
+      return false;
+    }
+
     ssize_t n = ::send(this->fd_, this->outputBuffer_.peek(),
                        this->outputBuffer_.readableBytes(), 0);
     if (n > 0) {
@@ -100,7 +112,10 @@ bool Connection::handleWrite() {
       this->setState(ConnState::Disconnected);
       return false;
     }
+
+    break;
   }
+
   LOG_DEBUG("write buffer drained, fd=" << this->fd_);
   return true;
 }
@@ -110,10 +125,10 @@ void Connection::setMessageCallback(MessageCallback cb) {
 }
 
 void Connection::sendPacket(const std::vector<char> &packet) {
+  this->outputBuffer_.append(packet.data(), packet.size());
   LOG_DEBUG("packet queued to output buffer, fd="
             << this->fd_ << ", packet_size=" << packet.size()
             << ", pending_write=" << this->outputBuffer_.readableBytes());
-  this->outputBuffer_.append(packet.data(), packet.size());
 }
 
 void Connection::send(const std::string &data) {
@@ -135,6 +150,18 @@ void Connection::setState(Connection::ConnState st) {
                                             << ", to=" << static_cast<int>(st));
   }
   this->state_ = st;
+}
+
+void Connection::shutdown() {
+  if (this->state_ == ConnState::Connected) {
+    LOG_INFO("connection enter disconnecting, fd=" << this->fd_);
+    this->state_ = ConnState::Disconnecting;
+  }
+}
+
+bool Connection::shouldCloseAfterWrite() const {
+  return this->state_ == ConnState::Disconnecting &&
+         this->outputBuffer_.readableBytes() == 0;
 }
 
 bool Connection::isConnected() const {

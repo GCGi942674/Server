@@ -3,12 +3,15 @@
 
 #include "Buffer.h"
 #include "protocol/message_codec.h"
+#include <atomic>
 #include <functional>
+#include <memory>
 #include <string>
 
-class Connection {
+class Connection : public std::enable_shared_from_this<Connection> {
 public:
-  using MessageCallback = std::function<void(int, const std::string &)>;
+  using MessageCallback = std::function<void(
+      const std::shared_ptr<Connection> &conn, const std::string &)>;
 
   enum class ConnState { Connected, Disconnecting, Disconnected };
 
@@ -46,6 +49,14 @@ public:
 
   bool shouldCloseAfterWrite() const;
 
+  void incPendingTasks();
+
+  void decPendingTasks();
+
+  bool hasPendingTasks() const;
+
+  bool canBeClosed() const;
+
 private:
   int fd_;
   ConnState state_;
@@ -53,6 +64,8 @@ private:
 
   Buffer inputBuffer_;
   Buffer outputBuffer_;
+
+  std::atomic<int> pending_tasks_{0};
 };
 
 #endif

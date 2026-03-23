@@ -13,7 +13,7 @@ Acceptor::Acceptor(EventLoop *loop, int port)
 
 Acceptor::~Acceptor() {
   if (listen_fd_ != -1) {
-    LOG_INFO("close listen_fd = " << this->listen_fd_);
+    LOG_INFO("close listen_fd=" << this->listen_fd_);
     close(this->listen_fd_);
     this->listen_fd_ = -1;
   }

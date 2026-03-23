@@ -55,7 +55,8 @@ bool Connection::handleRead() {
       LOG_INFO("message decoded, fd=" << this->fd_
                                       << ", msg_size=" << msg.size());
       if (this->on_message_) {
-        this->on_message_(this->fd_, msg);
+        this->incPendingTasks();
+        this->on_message_(this->shared_from_this(), msg);
       } else {
         LOG_WARN("message callback not set, fd=" << this->fd_);
       }
@@ -67,13 +68,8 @@ bool Connection::handleRead() {
       break;
     }
 
-    LOG_WARN("invalid packet, fd = " << this->fd_);
+    LOG_WARN("invalid packet, fd=" << this->fd_);
     this->setState(ConnState::Disconnected);
-    return false;
-  }
-
-  if (this->shouldCloseAfterWrite()) {
-    LOG_INFO("connection should be close after read, fd = " << this->fd_);
     return false;
   }
 
@@ -82,13 +78,6 @@ bool Connection::handleRead() {
 
 bool Connection::handleWrite() {
   while (this->outputBuffer_.readableBytes() > 0) {
-
-    if (this->shouldCloseAfterWrite()) {
-      LOG_INFO("write buffer drained, closing disconnecting connection, fd = "
-               << this->fd_);
-      this->setState(ConnState::Disconnected);
-      return false;
-    }
 
     ssize_t n = ::send(this->fd_, this->outputBuffer_.peek(),
                        this->outputBuffer_.readableBytes(), 0);
@@ -112,8 +101,13 @@ bool Connection::handleWrite() {
       this->setState(ConnState::Disconnected);
       return false;
     }
+  }
 
-    break;
+  if (this->canBeClosed()) {
+    LOG_INFO("write buffer drained, closing disconnecting connection, fd="
+             << this->fd_);
+    this->setState(ConnState::Disconnected);
+    return false;
   }
 
   LOG_DEBUG("write buffer drained, fd=" << this->fd_);
@@ -174,4 +168,17 @@ bool Connection::isDisconnecting() const {
 
 bool Connection::isDisconnected() const {
   return this->state_ == Connection::ConnState::Disconnected;
+}
+
+void Connection::incPendingTasks() { ++this->pending_tasks_; }
+
+void Connection::decPendingTasks() { --this->pending_tasks_; }
+
+bool Connection::hasPendingTasks() const {
+  return this->pending_tasks_.load() > 0;
+}
+
+bool Connection::canBeClosed() const {
+  return this->state_ == ConnState::Disconnecting &&
+         this->outputBuffer_.readableBytes() == 0 && !this->hasPendingTasks();
 }

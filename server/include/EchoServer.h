@@ -19,7 +19,8 @@ public:
   EchoServer(int port, EchoHandler &handler);
   ~EchoServer();
   void run();
-  void onMessage(int fd, const std::string &msg);
+  void onMessage(const std::shared_ptr<Connection> &conn,
+                 const std::string &msg);
 
 private:
   void handleNewConnection(int client_fd);
@@ -30,7 +31,7 @@ private:
   EchoHandler &handler_;
   Acceptor acceptor_;
   EventLoop loop_;
-  std::unordered_map<int, std::unique_ptr<Connection>> connections_;
+  std::unordered_map<int, std::shared_ptr<Connection>> connections_;
   ThreadPool pool_;
 };
 

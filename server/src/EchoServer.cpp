@@ -15,35 +15,48 @@ EchoServer::EchoServer(int port, EchoHandler &handler)
 
 EchoServer::~EchoServer() { LOG_INFO("EchoServer destroyed"); }
 
-void EchoServer::onMessage(int fd, const std::string &msg) {
+void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
+                           const std::string &msg) {
+  std::weak_ptr<Connection> weak_conn = conn;
 
-  LOG_INFO("dispatch message to worker, fd=" << fd
-                                             << ", msg_size=" << msg.size());
-
-  this->pool_.addTask([this, fd, msg]() -> void {
-    LOG_DEBUG("worker handling message, fd=" << fd
-                                             << ", msg_size=" << msg.size());
-
+  this->pool_.addTask([this, weak_conn, msg]() -> void {
     auto resp = this->handler_.onMessage(msg);
     auto packet = MessageCodec::encode(resp);
-    LOG_DEBUG("worker finished message, fd="
-              << fd << ", resp_size=" << resp.size()
-              << ", packet_size=" << packet.size());
 
-    this->loop_.queueInLoop([this, fd, packet]() -> void {
+    this->loop_.queueInLoop([this, weak_conn, packet]() -> void {
+      auto conn = weak_conn.lock();
+      if (!conn) {
+        LOG_WARN("Connection expired before sending response");
+        return;
+      }
+
+      int fd = conn->fd();
+
       auto iter = this->connections_.find(fd);
       if (iter == this->connections_.end()) {
         LOG_WARN("connection not found when sending response, fd=" << fd);
         return;
       }
-      if (!iter->second->isConnected() && !iter->second->isDisconnecting()) {
+
+      if (iter->second != conn) {
+        LOG_WARN("fd reused, skip stale connection response, fd=" << fd);
+        return;
+      }
+
+      if (!conn->isConnected() && !conn->isDisconnecting()) {
         LOG_WARN("connection already full disconnected, fd=" << fd);
         return;
       }
-      iter->second->sendPacket(packet);
-      this->updateConnectionEvent(fd, iter->second->wantWrite());
-      LOG_DEBUG("response queued back to loop, fd="
-                << fd << ", want_write=" << iter->second->wantWrite());
+
+      conn->sendPacket(packet);
+      conn->decPendingTasks();
+      this->updateConnectionEvent(fd, conn->wantWrite());
+      LOG_DEBUG("response queued back to loop, fd=" << fd << ", want_write="
+                                                    << conn->wantWrite());
+
+      if (conn->canBeClosed()) {
+        this->removeConnection(fd);
+      }
     });
   });
 }
@@ -63,7 +76,7 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
     LOG_WARN("client event but connection not found, fd=" << client_fd);
     return;
   }
-  Connection *conn = iter->second.get();
+  std::shared_ptr<Connection> conn = iter->second;
 
   if (conn->isDisconnected()) {
     LOG_INFO("connection already disconnected before handling event, fd="
@@ -96,10 +109,10 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
   }
 
   if (events & EPOLLRDHUP) {
-    LOG_INFO("peer rdhup, fd = " << client_fd);
+    LOG_INFO("peer rdhup, fd=" << client_fd);
     conn->shutdown();
 
-    if (conn->shouldCloseAfterWrite()) {
+    if (conn->canBeClosed()) {
       this->removeConnection(client_fd);
       return;
     }
@@ -110,14 +123,14 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
 
 void EchoServer::handleNewConnection(int client_fd) {
 
-  auto conn = std::make_unique<Connection>(client_fd);
+  auto conn = std::make_shared<Connection>(client_fd);
 
-  Connection *conn_ptr = conn.get();
-  this->connections_.emplace(client_fd, std::move(conn));
+  this->connections_.emplace(client_fd, conn);
 
-  conn_ptr->setMessageCallback([this](int client_fd, const std::string &msg) {
-    this->onMessage(client_fd, msg);
-  });
+  conn->setMessageCallback(
+      [this](const std::shared_ptr<Connection> &conn, const std::string &msg) {
+        this->onMessage(conn, msg);
+      });
 
   this->loop_.addFd(client_fd, EPOLLIN | EPOLLRDHUP,
                     [this, client_fd](uint32_t events) {

@@ -11,9 +11,9 @@ class Buffer;
 class MessageCodec {
 public:
   static constexpr uint32_t kHeaderLength = 4;
-  static constexpr uint32_t kMaxBudyLenght = 1024 * 1024; // 1MB
+  static constexpr uint32_t kMaxBodyLenght = 1024 * 1024; // 1MB
 
-  enum class DecodeResult { Ok, NeedMoreData, Invaild };
+  enum class DecodeResult { Ok, NeedMoreData, Invalid };
 
   static std::vector<char> encode(const std::string &msg);
 

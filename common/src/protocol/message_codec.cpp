@@ -25,8 +25,8 @@ MessageCodec::Decoder::tryDecode(Buffer &buf, std::string &out_msg) {
   std::memcpy(&net_len, buf.peek(), kHeaderLength);
   uint32_t body_len = ntohl(net_len);
 
-  if (body_len > kMaxBudyLenght) {
-    return MessageCodec::DecodeResult::Invaild;
+  if (body_len > kMaxBodyLenght) {
+    return MessageCodec::DecodeResult::Invalid;
   }
 
   if (buf.readableBytes() < kHeaderLength + body_len)

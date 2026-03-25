@@ -14,6 +14,8 @@ public:
 
   void addTask(std::function<void()> task);
 
+  void stop();
+
 private:
   void worker();
 

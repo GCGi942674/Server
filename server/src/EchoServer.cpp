@@ -69,6 +69,15 @@ void EchoServer::run() {
   this->loop_.loop();
 }
 
+void EchoServer::stop() {
+  LOG_INFO("server stopping...");
+
+  this->loop_.quit();
+  this->pool_.stop();
+
+  LOG_INFO("server stopped");
+}
+
 void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
   LOG_DEBUG("handle client event, fd=" << client_fd << ", events=" << events);
   auto iter = this->connections_.find(client_fd);

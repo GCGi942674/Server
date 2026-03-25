@@ -19,6 +19,7 @@ public:
   EchoServer(int port, EchoHandler &handler);
   ~EchoServer();
   void run();
+  void stop();
   void onMessage(const std::shared_ptr<Connection> &conn,
                  const std::string &msg);
 

@@ -16,10 +16,11 @@
 
 class EchoServer {
 public:
-  EchoServer(int port, EchoHandler &handler);
+  EchoServer(int port, EchoHandler &handler, int signal_fd);
   ~EchoServer();
   void run();
-  void stop();
+  void beginShutdown();
+  void tryFinishShutdown();
   void onMessage(const std::shared_ptr<Connection> &conn,
                  const std::string &msg);
 
@@ -34,6 +35,8 @@ private:
   EventLoop loop_;
   std::unordered_map<int, std::shared_ptr<Connection>> connections_;
   ThreadPool pool_;
+  std::atomic<bool> stopping_{false};
+  int signal_fd{-1};
 };
 
 #endif // ECHO_SERVER_H

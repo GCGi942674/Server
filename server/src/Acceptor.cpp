@@ -19,13 +19,13 @@ Acceptor::~Acceptor() {
   }
 }
 
-void Acceptor::startListen() {
+bool Acceptor::startListen() {
   this->listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
 
   if (this->listen_fd_ < 0) {
     LOG_ERROR("socket failed, error = " << errno
                                         << ", err = " << strerror(errno));
-    return;
+    return false;
   }
 
   int opt = 1;
@@ -42,13 +42,17 @@ void Acceptor::startListen() {
     LOG_ERROR("bind failed, fd=" << this->listen_fd_ << ", port=" << this->port_
                                  << ", errno=" << errno
                                  << ", err=" << strerror(errno));
-    return;
+    close(this->listen_fd_);
+    this->listen_fd_ = -1;
+    return false;
   }
 
   if (listen(this->listen_fd_, 128) < 0) {
     LOG_ERROR("listen failed, fd=" << this->listen_fd_ << ", errno=" << errno
                                    << ", err=" << strerror(errno));
-    return;
+    close(this->listen_fd_);
+    this->listen_fd_ = -1;
+    return false;
   }
 
   LOG_INFO("listen started, fd=" << this->listen_fd_
@@ -56,6 +60,7 @@ void Acceptor::startListen() {
 
   this->loop_->addFd(this->listen_fd_, EPOLLIN,
                      [this](uint32_t event) { this->handleAccept(); });
+  return true;
 }
 
 void Acceptor::handleAccept() {
@@ -81,6 +86,15 @@ void Acceptor::handleAccept() {
                                         << ", err=" << strerror(errno));
       break;
     }
+  }
+}
+
+void Acceptor::stopListen() {
+  if (this->listen_fd_ != -1) {
+    this->loop_->removeFd(this->listen_fd_);
+    close(this->listen_fd_);
+    this->listen_fd_ = -1;
+    LOG_INFO("Acceptor stop listening");
   }
 }
 

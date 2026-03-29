@@ -12,9 +12,10 @@ public:
   ThreadPool(size_t thread_num = 4);
   ~ThreadPool();
 
-  void addTask(std::function<void()> task);
+  bool addTask(std::function<void()> task);
 
   void stop();
+  void shutdown();
 
 private:
   void worker();
@@ -26,5 +27,6 @@ private:
   std::mutex mutex_;
   std::condition_variable cond_var_;
   bool stop_;
+  bool accepting_;
 };
 #endif

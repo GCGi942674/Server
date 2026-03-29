@@ -12,8 +12,9 @@ public:
   Acceptor(EventLoop *loop, int port);
   ~Acceptor();
 
-  void startListen();
+  bool startListen();
   void handleAccept();
+  void stopListen();
 
   void setNewConnectionCallback(ServerCallback callback);
 

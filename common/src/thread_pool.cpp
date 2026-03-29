@@ -1,7 +1,7 @@
 #include "thread_pool.h"
 #include "logging.h"
 
-ThreadPool::ThreadPool(size_t thread_num) : stop_(false) {
+ThreadPool::ThreadPool(size_t thread_num) : stop_(false), accepting_(true) {
   for (size_t i = 0; i < thread_num; ++i) {
     workers_.emplace_back(&ThreadPool::worker, this);
   }
@@ -9,18 +9,23 @@ ThreadPool::ThreadPool(size_t thread_num) : stop_(false) {
 
 ThreadPool::~ThreadPool() { this->stop(); }
 
-void ThreadPool::addTask(std::function<void()> task) {
+bool ThreadPool::addTask(std::function<void()> task) {
   {
     std::unique_lock<std::mutex> lock(mutex_);
+    if (!this->accepting_) {
+      return false;
+    }
     tasks_.push(task);
   }
   cond_var_.notify_one();
+  return true;
 }
 
 void ThreadPool::stop() {
   {
     std::unique_lock<std::mutex> lock(this->mutex_);
     this->stop_ = true;
+    this->accepting_ = false;
   }
 
   this->cond_var_.notify_all();
@@ -31,6 +36,11 @@ void ThreadPool::stop() {
     }
   }
   LOG_INFO("thread pool stopping...");
+}
+
+void ThreadPool::shutdown() {
+  std::unique_lock<std::mutex> lock(this->mutex_);
+  this->accepting_ = false;
 }
 
 void ThreadPool::worker() {

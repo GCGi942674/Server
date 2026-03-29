@@ -1,30 +1,40 @@
 #include "EchoServer.h"
 #include "logging.h"
 #include <signal.h>
+#include <sys/eventfd.h>
 #include <unistd.h>
 
-EchoServer *g_server = nullptr;
+static int g_signal_fd = -1;
 
 void handle_sigint(int) {
-  if (g_server) {
-    LOG_INFO("SIGINT receieved, stopping server...");
-    g_server->stop();
-  }
+  uint64_t one = 1;
+  ssize_t n = ::write(g_signal_fd, &one, sizeof(one));
+  (void)n;
 }
 
 int main() {
   Logger::instance().setLevel(LogLevel::INFO);
 
-  signal(SIGINT, handle_sigint);
-
   LOG_INFO("server starting...");
 
-  EchoHandler handler;
-  EchoServer server(8080, handler);
+  g_signal_fd = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
 
-  g_server = &server;
+  struct sigaction sa {};
+  sa.sa_handler = handle_sigint;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sigaction(SIGINT, &sa, nullptr);
+  sigaction(SIGTERM, &sa, nullptr);
+
+  EchoHandler handler;
+  EchoServer server(8080, handler, g_signal_fd);
 
   server.run();
+
+  if (g_signal_fd != -1) {
+    ::close(g_signal_fd);
+    g_signal_fd = -1;
+  }
 
   LOG_INFO("server stopped!");
 

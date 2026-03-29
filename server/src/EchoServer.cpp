@@ -1,5 +1,6 @@
 #include "EchoServer.h"
 #include "logging.h"
+#include "scope_guard.h"
 #include "utils.h" // 来自 common
 #include <arpa/inet.h>
 #include <cerrno>
@@ -8,8 +9,8 @@
 #include <sys/eventfd.h>
 #include <unistd.h>
 
-EchoServer::EchoServer(int port, EchoHandler &handler)
-    : handler_(handler), acceptor_(&loop_, port) {
+EchoServer::EchoServer(int port, EchoHandler &handler, int signal_fd)
+    : handler_(handler), acceptor_(&loop_, port), signal_fd(signal_fd) {
   LOG_INFO("EchoServer created, port=" << port);
 }
 
@@ -19,7 +20,7 @@ void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
                            const std::string &msg) {
   std::weak_ptr<Connection> weak_conn = conn;
 
-  this->pool_.addTask([this, weak_conn, msg]() -> void {
+  bool ok = this->pool_.addTask([this, weak_conn, msg]() -> void {
     auto resp = this->handler_.onMessage(msg);
     auto packet = MessageCodec::encode(resp);
 
@@ -29,6 +30,8 @@ void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
         LOG_WARN("Connection expired before sending response");
         return;
       }
+
+      auto guard = finally([&] { conn->decPendingTasks(); });
 
       int fd = conn->fd();
 
@@ -49,7 +52,6 @@ void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
       }
 
       conn->sendPacket(packet);
-      conn->decPendingTasks();
       this->updateConnectionEvent(fd, conn->wantWrite());
       LOG_DEBUG("response queued back to loop, fd=" << fd << ", want_write="
                                                     << conn->wantWrite());
@@ -59,23 +61,70 @@ void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
       }
     });
   });
+
+  if (!ok) {
+    conn->decPendingTasks();
+    LOG_WARN("thread pool shutting down, reject new task");
+  }
 }
 
 void EchoServer::run() {
   LOG_INFO("EchoServer running");
+
+  this->loop_.addFd(signal_fd, EPOLLIN, [this](uint32_t) {
+    uint64_t val = 0;
+    while (true) {
+      ssize_t n = ::read(this->signal_fd, &val, sizeof(val));
+      if (n > 0) {
+        continue;
+      }
+      if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        break;
+      }
+      if (n < 0 && errno == EINTR) {
+        continue;
+      }
+      break;
+    }
+    LOG_INFO("signal received, begin, graceful shutdown");
+    this->beginShutdown();
+  });
+
   this->acceptor_.setNewConnectionCallback(
       [this](int client_fd) { this->handleNewConnection(client_fd); });
-  this->acceptor_.startListen();
+
+  if (!this->acceptor_.startListen()) {
+    LOG_ERROR("acceptor startListen failed, quit server");
+    this->loop_.quit();
+    return;
+  }
   this->loop_.loop();
 }
 
-void EchoServer::stop() {
-  LOG_INFO("server stopping...");
+void EchoServer::beginShutdown() {
+  if (this->stopping_.exchange(true)) {
+    return;
+  }
 
-  this->loop_.quit();
-  this->pool_.stop();
+  LOG_INFO("begin graceful shutdown");
 
-  LOG_INFO("server stopped");
+  this->acceptor_.stopListen();
+  this->pool_.shutdown();
+
+  for (auto &[fd, conn] : this->connections_) {
+    conn->shutdown();
+    this->updateConnectionEvent(fd, conn->wantWrite());
+  }
+
+  this->tryFinishShutdown();
+}
+
+void EchoServer::tryFinishShutdown() {
+  if (this->stopping_ == true && this->connections_.empty()) {
+    LOG_INFO("all connections drained, stopping thread pool and quitting loop");
+    this->pool_.stop();
+    this->loop_.quit();
+  }
 }
 
 void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
@@ -131,6 +180,11 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
 }
 
 void EchoServer::handleNewConnection(int client_fd) {
+  if (this->stopping_) {
+    LOG_INFO("server stopping, reject new connection, fd = " << client_fd);
+    close(client_fd);
+    return;
+  }
 
   auto conn = std::make_shared<Connection>(client_fd);
 
@@ -155,18 +209,33 @@ void EchoServer::removeConnection(int client_fd) {
     LOG_WARN("removeConnection: fd not found, fd=" << client_fd);
     return;
   }
+
   iter->second->setState(Connection::ConnState::Disconnected);
   this->loop_.removeFd(client_fd);
   this->connections_.erase(client_fd);
   LOG_INFO("connection removed, fd=" << client_fd << ", total_connections="
                                      << this->connections_.size());
+
+  this->tryFinishShutdown();
 }
 
 void EchoServer::updateConnectionEvent(int client_fd, bool want_write) {
-  uint32_t events = EPOLLIN | EPOLLRDHUP;
+
+  auto iter = this->connections_.find(client_fd);
+  if (iter == this->connections_.end()) {
+    return;
+  }
+
+  auto conn = iter->second;
+  uint32_t events = EPOLLRDHUP;
+  if (!this->stopping_ && conn->isConnected()) {
+    events |= EPOLLIN;
+  }
+
   if (want_write) {
     events |= EPOLLOUT;
   }
+
   this->loop_.updateFd(client_fd, events);
   LOG_DEBUG("connection events updated, fd=" << client_fd
                                              << ", want_write=" << want_write

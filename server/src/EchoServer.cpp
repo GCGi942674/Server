@@ -98,6 +98,37 @@ void EchoServer::run() {
     this->loop_.quit();
     return;
   }
+
+  this->idle_check_timer_ = this->loop_.runEvery(5000, [this]() {
+    uint64_t now = getSteadyClockMs();
+
+    std::vector<int> to_close;
+
+    for (auto &[fd, conn] : this->connections_) {
+      if (conn->isDisconnected()) {
+        to_close.push_back(fd);
+        continue;
+      }
+
+      if (now - conn->lastActiveMs() > this->idle_timeout_ms_) {
+        LOG_INFO("connection idle timeout, fd=" << fd);
+        conn->shutdown();
+        this->updateConnectionEvent(fd, conn->wantWrite());
+
+        if (conn->canBeClosed()) {
+          to_close.push_back(fd);
+        }
+      }
+    }
+
+    for (int fd : to_close) {
+      this->removeConnection(fd);
+    }
+
+    LOG_INFO(
+        "timer heartbeat, current connections=" << this->connections_.size());
+  });
+
   this->loop_.loop();
 }
 
@@ -116,11 +147,30 @@ void EchoServer::beginShutdown() {
     this->updateConnectionEvent(fd, conn->wantWrite());
   }
 
+  this->shutdown_timer_ =
+      this->loop_.runAfter(this->shutdown_timeout_ms_, [this]() {
+        LOG_WARN("graceful shutdown timeout, force closing all connections");
+
+        std::vector<int> fds;
+        for (auto &[fd, conn] : this->connections_) {
+          fds.push_back(fd);
+        }
+
+        for (int fd : fds) {
+          this->removeConnection(fd);
+        }
+      });
+
   this->tryFinishShutdown();
 }
 
 void EchoServer::tryFinishShutdown() {
   if (this->stopping_ == true && this->connections_.empty()) {
+    if (this->shutdown_timer_ != 0) {
+      this->loop_.cancelTimer(this->shutdown_timer_);
+      this->shutdown_timer_ = 0;
+    }
+
     LOG_INFO("all connections drained, stopping thread pool and quitting loop");
     this->pool_.stop();
     this->loop_.quit();

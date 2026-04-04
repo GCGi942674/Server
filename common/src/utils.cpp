@@ -1,5 +1,6 @@
 #include "utils.h"
 #include <cerrno>
+#include <chrono>
 #include <iostream>
 #include <unistd.h>
 
@@ -34,4 +35,10 @@ bool recvAll(int fd, void *data, size_t len) {
     }
   }
   return true;
+}
+
+uint64_t getSteadyClockMs() {
+  using namespace std::chrono;
+  return duration_cast<milliseconds>(steady_clock::now().time_since_epoch())
+      .count();
 }

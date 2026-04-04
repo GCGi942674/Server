@@ -4,6 +4,7 @@
 #include "Buffer.h"
 #include "protocol/message_codec.h"
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -21,41 +22,30 @@ public:
   int fd() const;
 
   void setMessageCallback(MessageCallback cb);
-
   //处理读事件
   bool handleRead();
-
   //处理写事件
   bool handleWrite();
-
   //是否需要监听写事件
   bool wantWrite() const;
-
   void send(const std::string &data);
-
   void sendPacket(const std::vector<char> &packet);
 
   ConnState state() const;
-
   void setState(ConnState st);
-
   bool isConnected() const;
-
   bool isDisconnecting() const;
-
   bool isDisconnected() const;
 
   void shutdown();
-
   bool shouldCloseAfterWrite() const;
-
   void incPendingTasks();
-
   void decPendingTasks();
-
   bool hasPendingTasks() const;
-
   bool canBeClosed() const;
+
+  void refreshActivity();
+  uint64_t lastActiveMs() const;
 
 private:
   int fd_;
@@ -66,6 +56,8 @@ private:
   Buffer outputBuffer_;
 
   std::atomic<int> pending_tasks_{0};
+
+  std::atomic<uint64_t> last_active_ms_{0};
 };
 
 #endif

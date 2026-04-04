@@ -1,5 +1,6 @@
 #include "EventLoop.h"
 #include "logging.h"
+#include "utils.h"
 #include <cerrno>
 #include <cstring>
 #include <iostream>
@@ -48,7 +49,9 @@ void EventLoop::loop() {
   LOG_INFO("event loop started");
   epoll_event events[1024];
   while (!this->quit_) {
-    int nready = epoll_wait(this->epfd_, events, 1024, -1);
+    int timeout_ms = this->getPollTimeoutMs();
+    int nready = epoll_wait(this->epfd_, events, 1024, timeout_ms);
+
     if (nready < 0) {
       if (errno == EINTR) {
 
@@ -78,6 +81,7 @@ void EventLoop::loop() {
       }
     }
 
+    this->handleExpiredTimers();
     this->doPending();
   }
   LOG_INFO("event loop exited");
@@ -145,6 +149,49 @@ void EventLoop::queueInLoop(Functor task) {
   }
 }
 
+EventLoop::TimerId EventLoop::runAfter(uint64_t delay_ms, TimerCallback cb) {
+  auto timer = std::make_shared<Timer>();
+  timer->id = next_timer_id_++;
+  timer->expire_ms = getSteadyClockMs() + delay_ms;
+  timer->interval_ms = 0;
+  timer->cb = std::move(cb);
+  timer->canceled = false;
+  {
+    std::lock_guard<std::mutex> lock(this->timer_mutex_);
+    this->timer_map_[timer->id] = timer;
+    this->timers_.push(timer);
+  }
+
+  this->queueInLoop([]() {});
+  return timer->id;
+}
+
+EventLoop::TimerId EventLoop::runEvery(uint64_t interval_ms, TimerCallback cb) {
+  auto timer = std::make_shared<Timer>();
+  timer->id = next_timer_id_++;
+  timer->expire_ms = getSteadyClockMs() + interval_ms;
+  timer->interval_ms = interval_ms;
+  timer->cb = std::move(cb);
+  timer->canceled = false;
+  {
+    std::lock_guard<std::mutex> lock(this->timer_mutex_);
+    this->timer_map_[timer->id] = timer;
+    this->timers_.push(timer);
+  }
+
+  this->queueInLoop([]() {});
+  return timer->id;
+}
+
+void EventLoop::cancelTimer(TimerId timer_id) {
+  std::lock_guard<std::mutex> lock(this->timer_mutex_);
+  auto it = this->timer_map_.find(timer_id);
+  if (it != this->timer_map_.end()) {
+    it->second->canceled = true;
+    this->timer_map_.erase(it);
+  }
+}
+
 void EventLoop::doPending() {
   std::queue<Functor> tasks;
   {
@@ -179,4 +226,81 @@ void EventLoop::handleWakeUp() {
     break;
   }
   LOG_DEBUG("wakeup fd drained");
+}
+
+void EventLoop::handleExpiredTimers() {
+  std::vector<std::shared_ptr<Timer>> expired;
+  uint64_t now = getSteadyClockMs();
+  {
+    std::lock_guard<std::mutex> lock(this->timer_mutex_);
+    while (!this->timers_.empty()) {
+      auto timer = this->timers_.top();
+
+      if (timer->canceled) {
+        this->timers_.pop();
+        continue;
+      }
+
+      auto it = this->timer_map_.find(timer->id);
+      if (it == this->timer_map_.end()) {
+        this->timers_.pop();
+        continue;
+      }
+
+      if (timer->expire_ms > now) {
+        break;
+      }
+
+      this->timers_.pop();
+      expired.push_back(timer);
+
+      if (timer->interval_ms == 0) {
+        this->timer_map_.erase(timer->id);
+      }
+    }
+  }
+
+  for (auto &timer : expired) {
+    if (!timer->canceled) {
+      timer->cb();
+    }
+    if (!timer->canceled && timer->interval_ms > 0) {
+      timer->expire_ms = getSteadyClockMs() + timer->interval_ms;
+
+      std::lock_guard<std::mutex> lock(this->timer_mutex_);
+      if (this->timer_map_.find(timer->id) != this->timer_map_.end()) {
+        this->timers_.push(timer);
+      }
+    }
+  }
+}
+
+int EventLoop::getPollTimeoutMs() {
+  std::lock_guard<std::mutex> lock(this->timer_mutex_);
+  if (this->timers_.empty()) {
+    return -1;
+  }
+
+  uint64_t now = getSteadyClockMs();
+
+  while (!this->timers_.empty()) {
+    auto timer = this->timers_.top();
+    if (timer->canceled) {
+      this->timers_.pop();
+      continue;
+    }
+
+    if (this->timer_map_.find(timer->id) == this->timer_map_.end()) {
+      this->timers_.pop();
+      continue;
+    }
+
+    if (timer->expire_ms <= now) {
+      return 0;
+    }
+
+    uint64_t diff = timer->expire_ms - now;
+    return static_cast<int>(diff);
+  }
+  return -1;
 }

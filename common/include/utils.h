@@ -3,10 +3,13 @@
 
 #include <cstddef>
 #include <fcntl.h>
+#include <cstdint>
 #include <sys/socket.h>
 
 int setNonBlocking(int fd);
 bool sendAll(int fd, const void *data, size_t len);
 bool recvAll(int fd, void *data, size_t len);
+
+uint64_t getSteadyClockMs();
 
 #endif // UTILS_H

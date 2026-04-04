@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 Connection::Connection(int fd) : fd_(fd), state_(ConnState::Connected) {
+  this->refreshActivity();
   LOG_INFO("connection created, fd=" << this->fd_);
 }
 
@@ -27,6 +28,7 @@ bool Connection::handleRead() {
     ssize_t n = recv(this->fd_, buffer, sizeof(buffer), 0);
 
     if (n > 0) {
+      this->refreshActivity();
       LOG_DEBUG("recv success, fd=" << this->fd_ << ", bytes=" << n);
       this->inputBuffer_.append(buffer, static_cast<size_t>(n));
 
@@ -82,6 +84,7 @@ bool Connection::handleWrite() {
     ssize_t n = ::send(this->fd_, this->outputBuffer_.peek(),
                        this->outputBuffer_.readableBytes(), 0);
     if (n > 0) {
+      this->refreshActivity();
       LOG_DEBUG("send success, fd=" << this->fd_ << ", bytes=" << n);
       this->outputBuffer_.retrieve(static_cast<size_t>(n));
     } else if (n < 0) {
@@ -181,4 +184,16 @@ bool Connection::hasPendingTasks() const {
 bool Connection::canBeClosed() const {
   return this->state_ == ConnState::Disconnecting &&
          this->outputBuffer_.readableBytes() == 0 && !this->hasPendingTasks();
+}
+
+void Connection::refreshActivity() {
+  using namespace std::chrono;
+  uint64_t now =
+      duration_cast<milliseconds>(steady_clock::now().time_since_epoch())
+          .count();
+  this->last_active_ms_.store(now);
+}
+
+uint64_t Connection::lastActiveMs() const {
+  return this->last_active_ms_.load();
 }

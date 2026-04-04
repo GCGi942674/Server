@@ -30,6 +30,12 @@ private:
   void removeConnection(int client_fd);
   void updateConnectionEvent(int client_fd, bool want_wrtie);
 
+private:
+  uint64_t idle_timeout_ms_{60000};
+  uint64_t shutdown_timeout_ms_{30000};
+  EventLoop::TimerId shutdown_timer_{0};
+  EventLoop::TimerId idle_check_timer_{0};
+
   EchoHandler &handler_;
   Acceptor acceptor_;
   EventLoop loop_;

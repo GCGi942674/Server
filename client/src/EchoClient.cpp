@@ -6,61 +6,123 @@
 #include <iostream>
 #include <unistd.h>
 
-EchoClient::EchoClient(const std::string &ip, int port)
-    : server_ip_(ip), server_port_(port), sockfd_(-1) {}
+EchoClient::EchoClient(const std::string &host, int port)
+    : host_(host), port_(port), sockfd_(-1) {}
 
-EchoClient::~EchoClient() {
-  if (this->sockfd_ != -1) {
-    close(this->sockfd_);
-  }
-}
+EchoClient::~EchoClient() { this->markDisconnected(); }
 
 bool EchoClient::connect() {
-  this->sockfd_ = socket(AF_INET, SOCK_STREAM, 0);
-  if (this->sockfd_ == -1)
+
+  if (this->state_ == ClientState::Connected && this->sockfd_ != -1) {
+    return true;
+  }
+
+  this->markDisconnected();
+  this->state_ = ClientState::Connecting;
+
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) {
+    this->state_ = ClientState::Disconnected;
     return false;
+  }
 
   sockaddr_in serv_addr{};
   serv_addr.sin_family = AF_INET;
-  serv_addr.sin_port = htons(this->server_port_);
-  if (inet_pton(AF_INET, this->server_ip_.c_str(), &serv_addr.sin_addr) <= 0) {
-    close(this->sockfd_);
-    this->sockfd_ = -1;
+  serv_addr.sin_port = htons(this->port_);
+  if (inet_pton(AF_INET, this->host_.c_str(), &serv_addr.sin_addr) <= 0) {
+    close(fd);
+    this->state_ = ClientState::Disconnected;
     return false;
   }
 
-  if (::connect(this->sockfd_, (sockaddr *)&serv_addr, sizeof(serv_addr)) ==
-      -1) {
-    close(this->sockfd_);
+  if (::connect(fd, (sockaddr *)&serv_addr, sizeof(serv_addr)) == -1) {
+    close(fd);
+    this->state_ = ClientState::Disconnected;
+    return false;
+  }
+
+  this->sockfd_ = fd;
+  this->state_ = ClientState::Connected;
+  this->reconnect_delay_ms_ = 1000;
+
+  return true;
+}
+
+bool EchoClient::sendMessage(const std::string &msg, std::string &response) {
+
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    if (!this->ensureConnected()) {
+      return false;
+    }
+
+    auto encoded = MessageCodec::encode(msg);
+
+    if (!this->writePakcet(encoded)) {
+      continue;
+    }
+
+    if (!this->readResponse(response)) {
+      continue;
+    }
+    return true;
+  }
+  return true;
+}
+
+void EchoClient::disconnect() { this->markDisconnected(); }
+
+void EchoClient::markDisconnected() {
+  if (this->sockfd_ != -1) {
+    ::close(this->sockfd_);
     this->sockfd_ = -1;
+  }
+  this->state_ = ClientState::Disconnected;
+}
+
+bool EchoClient::ensureConnected() {
+  if (this->state_ == ClientState::Connected && this->sockfd_ != -1) {
+    return true;
+  }
+  return this->connect();
+}
+
+bool EchoClient::writePakcet(const std::vector<char> &packet) {
+  if (this->sockfd_ == -1) {
+    return false;
+  }
+  if (!sendAll(this->sockfd_, packet.data(), packet.size())) {
+    this->markDisconnected();
     return false;
   }
   return true;
 }
 
-bool EchoClient::sendMessage(const std::string &msg, std::string &response) {
-  auto encoded = MessageCodec::encode(msg);
-
-  if (!sendAll(this->sockfd_, encoded.data(), encoded.size()))
-    return false;
-  // decoder.reset();
-
+bool EchoClient::readResponse(std::string &response) {
   char recv_buf[1024];
+
   while (true) {
-    ssize_t n = recv(this->sockfd_, recv_buf, sizeof(recv_buf), 0);
-    if (n < 0)
-      return false;
-    this->inputBuffer_.append(recv_buf, static_cast<size_t>(n));
-    if (MessageCodec::Decoder::tryDecode(this->inputBuffer_, response) ==
-        MessageCodec::DecodeResult::Ok) {
+    auto result =
+        MessageCodec::Decoder::tryDecode(this->inputBuffer_, response);
+    if (result == MessageCodec::DecodeResult::Ok) {
       return true;
     }
-  }
-}
 
-void EchoClient::disconnect() {
-  if (this->sockfd_ != -1) {
-    close(this->sockfd_);
-    this->sockfd_ = -1;
+    if (result == MessageCodec::DecodeResult::Invalid) {
+      this->markDisconnected();
+      return false;
+    }
+
+    ssize_t n = ::recv(this->sockfd_, recv_buf, sizeof(recv_buf), 0);
+    if (n == 0) {
+      this->markDisconnected();
+      return false;
+    }
+
+    if (n < 0) {
+      this->markDisconnected();
+      return false;
+    }
+
+    this->inputBuffer_.append(recv_buf, static_cast<size_t>(n));
   }
 }

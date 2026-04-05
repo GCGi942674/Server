@@ -1,5 +1,6 @@
 #include "Connection.h"
 #include "logging.h"
+#include "utils.h"
 #include <cstring>
 #include <errno.h>
 #include <iostream>
@@ -187,11 +188,7 @@ bool Connection::canBeClosed() const {
 }
 
 void Connection::refreshActivity() {
-  using namespace std::chrono;
-  uint64_t now =
-      duration_cast<milliseconds>(steady_clock::now().time_since_epoch())
-          .count();
-  this->last_active_ms_.store(now);
+  this->last_active_ms_.store(getSteadyClockMs());
 }
 
 uint64_t Connection::lastActiveMs() const {

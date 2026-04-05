@@ -4,19 +4,33 @@
 #include "Buffer.h"
 #include <string>
 
+enum class ClientState { Disconnected, Connecting, Connected, Reconnecting };
+
 class EchoClient {
 public:
   EchoClient(const std::string &ip, int port);
   ~EchoClient();
 
   bool connect();
-  bool sendMessage(const std::string &msg, std::string &response);
   void disconnect();
+  bool sendMessage(const std::string &msg, std::string &response);
 
 private:
-  std::string server_ip_;
-  int server_port_;
-  int sockfd_;
+  void markDisconnected();
+  bool ensureConnected();
+  bool writePakcet(const std::vector<char> & packet);
+  bool readResponse(std::string& response);
+
+private:
+  std::string host_;
+  int port_;
+  int sockfd_{-1};
+
+  ClientState state_{ClientState::Disconnected};
+
+  int reconnect_delay_ms_{1000};
+  int max_reconnect_delay_ms_{8000};
+  int connect_timeout_ms_{3000};
 
   Buffer inputBuffer_;
 };

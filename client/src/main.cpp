@@ -1,6 +1,9 @@
 #include "EchoClient.h"
+#include "logging.h"
+#include <atomic>
 #include <iostream>
 #include <string>
+#include <thread>
 
 using namespace std;
 
@@ -10,6 +13,7 @@ int main() {
     cerr << "Failed to connect to server." << endl;
     return 1;
   }
+  client.startHeartbeat();
 
   string input;
   while (true) {

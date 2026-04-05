@@ -21,6 +21,12 @@ void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
   std::weak_ptr<Connection> weak_conn = conn;
 
   bool ok = this->pool_.addTask([this, weak_conn, msg]() -> void {
+    if (msg == "__ping__") {
+      LOG_INFO("heartbeat pong queued");
+    } else {
+      LOG_INFO("normal response queued");
+    }
+
     auto resp = this->handler_.onMessage(msg);
     auto packet = MessageCodec::encode(resp);
 

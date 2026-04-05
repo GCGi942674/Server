@@ -1,4 +1,5 @@
 #include "EchoClient.h"
+#include "logging.h"
 #include "protocol/message_codec.h"
 #include "utils.h"
 #include <arpa/inet.h>
@@ -9,7 +10,10 @@
 EchoClient::EchoClient(const std::string &host, int port)
     : host_(host), port_(port), sockfd_(-1) {}
 
-EchoClient::~EchoClient() { this->markDisconnected(); }
+EchoClient::~EchoClient() {
+  this->stopHeartbeat();
+  this->markDisconnected();
+}
 
 bool EchoClient::connect() {
 
@@ -17,7 +21,7 @@ bool EchoClient::connect() {
     return true;
   }
 
-  this->markDisconnected();
+  this->resetConnection();
   this->state_ = ClientState::Connecting;
 
   int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -49,6 +53,7 @@ bool EchoClient::connect() {
 }
 
 bool EchoClient::sendMessage(const std::string &msg, std::string &response) {
+  std::lock_guard<std::mutex> lock(this->io_mutex_);
 
   for (int attempt = 0; attempt < 2; ++attempt) {
     if (!this->ensureConnected()) {
@@ -57,7 +62,7 @@ bool EchoClient::sendMessage(const std::string &msg, std::string &response) {
 
     auto encoded = MessageCodec::encode(msg);
 
-    if (!this->writePakcet(encoded)) {
+    if (!this->writePacket(encoded)) {
       continue;
     }
 
@@ -66,17 +71,56 @@ bool EchoClient::sendMessage(const std::string &msg, std::string &response) {
     }
     return true;
   }
-  return true;
+  return false;
+}
+
+bool EchoClient::sendPing() {
+  std::string resp;
+  if (!this->sendMessage("__ping__", resp)) {
+    return false;
+  }
+  return resp == "__pong__";
+}
+
+void EchoClient::startHeartbeat() {
+  if (this->heartbeat_enabled_) {
+    return;
+  }
+  this->running_ = true;
+  this->heartbeat_enabled_ = true;
+  this->heartbeat_thread_ = std::thread(&EchoClient::heartbeatLoop, this);
+}
+
+void EchoClient::stopHeartbeat() {
+  this->running_ = false;
+  this->heartbeat_enabled_ = false;
+
+  this->cv_.notify_all();
+
+  if (this->heartbeat_thread_.joinable()) {
+    this->heartbeat_thread_.join();
+  }
 }
 
 void EchoClient::disconnect() { this->markDisconnected(); }
 
-void EchoClient::markDisconnected() {
+void EchoClient::resetConnection() {
   if (this->sockfd_ != -1) {
     ::close(this->sockfd_);
     this->sockfd_ = -1;
   }
+}
+
+void EchoClient::markDisconnected() {
+  bool had_connection =
+      (this->sockfd_ != -1) || (this->state_ != ClientState::Disconnected);
+
+  this->resetConnection();
   this->state_ = ClientState::Disconnected;
+  this->inputBuffer_.retrieveAll();
+  if (had_connection) {
+    LOG_WARN("client marked disconnected");
+  }
 }
 
 bool EchoClient::ensureConnected() {
@@ -86,7 +130,7 @@ bool EchoClient::ensureConnected() {
   return this->connect();
 }
 
-bool EchoClient::writePakcet(const std::vector<char> &packet) {
+bool EchoClient::writePacket(const std::vector<char> &packet) {
   if (this->sockfd_ == -1) {
     return false;
   }
@@ -125,4 +169,71 @@ bool EchoClient::readResponse(std::string &response) {
 
     this->inputBuffer_.append(recv_buf, static_cast<size_t>(n));
   }
+}
+
+void EchoClient::heartbeatLoop() {
+  std::unique_lock<std::mutex> cv_lock(this->cv_mutex_);
+
+  while (this->running_) {
+    if (this->cv_.wait_for(
+            cv_lock, std::chrono::milliseconds(this->heartbeat_interval_ms_),
+            [this]() { return !this->running_; })) {
+      break;
+    }
+
+    cv_lock.unlock();
+
+    if (!this->io_mutex_.try_lock()) {
+      cv_lock.lock();
+      continue;
+    }
+
+    std::unique_lock<std::mutex> io_lock(this->io_mutex_, std::adopt_lock);
+
+    bool ok = this->sendPingUnlocked();
+    if (ok) {
+      this->heartbeat_fail_count_ = 0;
+    } else {
+      ++this->heartbeat_fail_count_;
+      LOG_WARN("heartbeat failed, count=" << this->heartbeat_fail_count_);
+
+      if (this->heartbeat_fail_count_ >= this->heartbeat_fail_threshold_) {
+        this->markDisconnected();
+        this->heartbeat_fail_count_ = 0;
+      }
+    }
+    io_lock.unlock();
+    cv_lock.lock();
+  }
+}
+
+bool EchoClient::sendPingUnlocked() {
+  this->inputBuffer_.retrieveAll();
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    if (!this->ensureConnected()) {
+      return false;
+    }
+
+    std::string response;
+    auto encoded = MessageCodec::encode("__ping__");
+
+    LOG_INFO("heartbeat ping sending");
+
+    if (!this->writePacket(encoded)) {
+      LOG_INFO("heartbeat send failed");
+      continue;
+    }
+
+    if (!this->readResponse(response)) {
+      LOG_INFO("heartbeat recv failed");
+      continue;
+    }
+
+    LOG_INFO("heartbeat pong received");
+    return response == "__pong__";
+  }
+
+  LOG_WARN("heartbeat failed, count=" << this->heartbeat_fail_count_);
+
+  return false;
 }

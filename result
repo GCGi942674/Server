@@ -1,0 +1,98 @@
+[stats] total = 7723 success=7723 failed=0 qps=7723 avg_rtt_us=6468 max_rtt_us=17236
+[stats] total = 15098 success=15098 failed=0 qps=7375 avg_rtt_us=6620 max_rtt_us=19306
+[stats] total = 22750 success=22750 failed=0 qps=7652 avg_rtt_us=6590 max_rtt_us=52957
+[stats] total = 30701 success=30701 failed=0 qps=7951 avg_rtt_us=6512 max_rtt_us=52957
+[stats] total = 38504 success=38504 failed=0 qps=7803 avg_rtt_us=6493 max_rtt_us=52957
+[stats] total = 47003 success=47003 failed=0 qps=8499 avg_rtt_us=6383 max_rtt_us=52957
+[stats] total = 55026 success=55026 failed=0 qps=8023 avg_rtt_us=6360 max_rtt_us=52957
+[stats] total = 63110 success=63110 failed=0 qps=8084 avg_rtt_us=6338 max_rtt_us=52957
+[stats] total = 71027 success=71027 failed=0 qps=7917 avg_rtt_us=6335 max_rtt_us=52957
+[stats] total = 79401 success=79401 failed=0 qps=8374 avg_rtt_us=6297 max_rtt_us=52957
+[stats] total = 87422 success=87422 failed=0 qps=8021 avg_rtt_us=6291 max_rtt_us=52957
+[stats] total = 95395 success=95395 failed=0 qps=7973 avg_rtt_us=6290 max_rtt_us=52957
+[stats] total = 103206 success=103206 failed=0 qps=7811 avg_rtt_us=6299 max_rtt_us=52957
+[stats] total = 111345 success=111345 failed=0 qps=8139 avg_rtt_us=6287 max_rtt_us=52957
+[stats] total = 119273 success=119273 failed=0 qps=7928 avg_rtt_us=6288 max_rtt_us=52957
+[stats] total = 127558 success=127558 failed=0 qps=8285 avg_rtt_us=6272 max_rtt_us=52957
+[stats] total = 135373 success=135373 failed=0 qps=7815 avg_rtt_us=6279 max_rtt_us=52957
+[stats] total = 143339 success=143339 failed=0 qps=7966 avg_rtt_us=6279 max_rtt_us=52957
+[stats] total = 151443 success=151443 failed=0 qps=8104 avg_rtt_us=6274 max_rtt_us=52957
+[stats] total = 159384 success=159384 failed=0 qps=7941 avg_rtt_us=6274 max_rtt_us=52957
+[stats] total = 167563 success=167563 failed=0 qps=8179 avg_rtt_us=6266 max_rtt_us=52957
+[stats] total = 173809 success=173809 failed=0 qps=6246 avg_rtt_us=6329 max_rtt_us=206062
+[stats] total = 181843 success=181843 failed=0 qps=8034 avg_rtt_us=6325 max_rtt_us=206062
+[stats] total = 189967 success=189967 failed=0 qps=8124 avg_rtt_us=6317 max_rtt_us=206062
+[stats] total = 197865 success=197865 failed=0 qps=7898 avg_rtt_us=6318 max_rtt_us=206062
+[stats] total = 205962 success=205962 failed=0 qps=8097 avg_rtt_us=6312 max_rtt_us=206062
+[stats] total = 214263 success=214263 failed=0 qps=8301 avg_rtt_us=6301 max_rtt_us=206062
+[stats] total = 222117 success=222117 failed=0 qps=7854 avg_rtt_us=6303 max_rtt_us=206062
+[stats] total = 230154 success=230154 failed=0 qps=8037 avg_rtt_us=6300 max_rtt_us=206062
+[stats] total = 238075 success=238075 failed=0 qps=7921 avg_rtt_us=6300 max_rtt_us=206062
+
+===== Load Test Summary =====
+elapsed_ms=30012
+total=238075
+success=238075
+failed=0
+avg_rtt_us=6300
+max_rtt_us=206062
+avg_qps=7932.66
+[stats] total = 7791 success=7791 failed=0 qps=7791 avg_rtt_us=12873 max_rtt_us=34970
+[stats] total = 15959 success=15959 failed=0 qps=8168 avg_rtt_us=12540 max_rtt_us=34970
+[stats] total = 23370 success=23370 failed=0 qps=7411 avg_rtt_us=12846 max_rtt_us=43398
+[stats] total = 31037 success=31037 failed=0 qps=7667 avg_rtt_us=12879 max_rtt_us=43398
+[stats] total = 39036 success=39036 failed=0 qps=7999 avg_rtt_us=12814 max_rtt_us=43398
+[stats] total = 46464 success=46464 failed=0 qps=7428 avg_rtt_us=12916 max_rtt_us=43398
+[stats] total = 54198 success=54198 failed=0 qps=7734 avg_rtt_us=12911 max_rtt_us=43398
+[stats] total = 61755 success=61755 failed=0 qps=7557 avg_rtt_us=12952 max_rtt_us=43398
+[stats] total = 69974 success=69974 failed=0 qps=8219 avg_rtt_us=12861 max_rtt_us=43398
+[stats] total = 77793 success=77793 failed=0 qps=7819 avg_rtt_us=12857 max_rtt_us=43398
+[stats] total = 85661 success=85661 failed=0 qps=7868 avg_rtt_us=12843 max_rtt_us=43398
+[stats] total = 93752 success=93752 failed=0 qps=8091 avg_rtt_us=12800 max_rtt_us=43398
+[stats] total = 101557 success=101557 failed=0 qps=7805 avg_rtt_us=12802 max_rtt_us=43398
+[stats] total = 109748 success=109748 failed=0 qps=8191 avg_rtt_us=12758 max_rtt_us=43398
+[stats] total = 117769 success=117769 failed=0 qps=8021 avg_rtt_us=12738 max_rtt_us=43398
+[stats] total = 125744 success=125744 failed=0 qps=7975 avg_rtt_us=12726 max_rtt_us=43398
+[stats] total = 133710 success=133710 failed=0 qps=7966 avg_rtt_us=12714 max_rtt_us=43398
+[stats] total = 141607 success=141607 failed=0 qps=7897 avg_rtt_us=12712 max_rtt_us=43398
+[stats] total = 149442 success=149442 failed=0 qps=7835 avg_rtt_us=12717 max_rtt_us=43398
+[stats] total = 157347 success=157347 failed=0 qps=7905 avg_rtt_us=12713 max_rtt_us=43398
+[stats] total = 165407 success=165407 failed=0 qps=8060 avg_rtt_us=12698 max_rtt_us=43398
+[stats] total = 173124 success=173124 failed=0 qps=7717 avg_rtt_us=12709 max_rtt_us=43398
+[stats] total = 181070 success=181070 failed=0 qps=7946 avg_rtt_us=12703 max_rtt_us=43398
+[stats] total = 188717 success=188717 failed=0 qps=7647 avg_rtt_us=12719 max_rtt_us=43398
+[stats] total = 196937 success=196937 failed=0 qps=8220 avg_rtt_us=12696 max_rtt_us=43398
+[stats] total = 205007 success=205007 failed=0 qps=8070 avg_rtt_us=12683 max_rtt_us=43398
+[stats] total = 213315 success=213315 failed=0 qps=8308 avg_rtt_us=12658 max_rtt_us=43398
+[stats] total = 221197 success=221197 failed=0 qps=7882 avg_rtt_us=12660 max_rtt_us=43398
+[stats] total = 229338 success=229338 failed=0 qps=8141 avg_rtt_us=12646 max_rtt_us=43398
+[stats] total = 237455 success=237455 failed=0 qps=8117 avg_rtt_us=12635 max_rtt_us=43398
+
+===== Load Test Summary =====
+elapsed_ms=30013
+total=237462
+success=237462
+failed=0
+avg_rtt_us=12635
+max_rtt_us=43398
+avg_qps=7911.97
+
+
+top - 16:00:32 up  2:53,  1 user,  load average: 0.87, 0.40, 0.20
+任务: 374 total,   3 running, 371 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  3.0 us,  3.5 sy,  0.0 ni, 91.7 id,  0.0 wa,  0.0 hi,  1.8 si,  0.0 st
+MiB Mem :  15947.0 total,  10377.1 free,   2789.2 used,   2780.6 buff/cache
+MiB Swap:   2140.0 total,   2140.0 free,      0.0 used.  12844.9 avail Mem 
+
+ 进程号 USER      PR  NI    VIRT    RES    SHR    %CPU  %MEM     TIME+ COMMAND                                                                                                                                              
+   7890 cg77      20   0  301456   4196   3612 R 115.6   0.0   4:00.67 server                                                                                                                                               
+  13170 cg77      20   0 4962696   4888   3420 S  30.2   0.0   0:01.96 load_client                                                                                                                                          
+   3122 cg77      20   0 1188092  97388  47876 D  24.3   0.6   1:11.60 node                                                                                                                                                 
+    333 root      20   0       0      0      0 R   8.3   0.0   0:06.49 kworker/u260:24-events_unbound                                                                                                                       
+   2772 cg77      20   0   11.3g 167844  55088 S   8.3   1.0   0:31.23 node                                                                                                                                                 
+   7520 root      20   0       0      0      0 I   8.0   0.0   0:06.02 kworker/u260:2-events_unbound                                                                                                                        
+   2703 cg77      20   0   55248  23168  16456 S   5.6   0.1   0:27.45 code-e7fb5e96c0                                                                                                                                      
+   3086 cg77      20   0   53.1g 830672  66480 S   4.3   5.1   1:50.69 node                                                                                                                                                 
+   2684 cg77      20   0   17840   8472   5604 S   4.0   0.1   0:18.94 sshd                                                                                                                                                 
+   5843 root      20   0       0      0      0 I   3.3   0.0   0:04.73 kworker/u260:1-events_unbound                                                                                                                        
+     63 root      20   0       0      0      0 I   1.7   0.0   0:06.95 kworker/u257:0-events_unbound

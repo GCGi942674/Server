@@ -9,11 +9,11 @@
 
 Connection::Connection(int fd) : fd_(fd), state_(ConnState::Connected) {
   this->refreshActivity();
-  LOG_INFO("connection created, fd=" << this->fd_);
+  LOG_DEBUG("connection created, fd=" << this->fd_);
 }
 
 Connection::~Connection() {
-  LOG_INFO("connection destroying, fd=" << this->fd_);
+  LOG_DEBUG("connection destroying, fd=" << this->fd_);
   if (this->fd_ != -1) {
     close(this->fd_);
     this->fd_ = -1;
@@ -61,12 +61,11 @@ Connection::ReadResult Connection::handleRead() {
     auto result = MessageCodec::Decoder::tryDecode(this->inputBuffer_, msg);
 
     if (result == MessageCodec::DecodeResult::Ok) {
-      LOG_INFO("message decoded, fd=" << this->fd_
-                                      << ", msg_size=" << msg.size());
+      LOG_DEBUG("message decoded, fd=" << this->fd_
+                                       << ", msg_size=" << msg.size());
       read_res.messages_decoded++;
       if (msg == "__ping__") {
         read_res.heartbeat_messages++;
-        
       }
 
       if (this->on_message_) {

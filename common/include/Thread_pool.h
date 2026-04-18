@@ -9,7 +9,7 @@
 
 class ThreadPool {
 public:
-  ThreadPool(size_t thread_num = 4);
+  ThreadPool(size_t thread_num = 8);
   ~ThreadPool();
 
   bool addTask(std::function<void()> task);

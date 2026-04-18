@@ -46,6 +46,10 @@ private:
   int signal_fd{-1};
 
   ServerMetrics metrics_;
+  ServerMetricsSnapshot last_metrics_snapshot_;
+  bool has_last_snapshot_{false};
+
+  static constexpr double kMetricIntervalSec = 5.0;
 };
 
 #endif // ECHO_SERVER_H

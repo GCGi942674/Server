@@ -25,9 +25,9 @@ void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
     uint64_t begin_us = getSteadyClockUs();
 
     if (is_heartbeat) {
-      LOG_INFO("heartbeat pong queued");
+      LOG_DEBUG("heartbeat pong queued");
     } else {
-      LOG_INFO("normal response queued");
+      LOG_DEBUG("normal response queued");
     }
 
     auto resp = this->handler_.onMessage(msg);
@@ -116,60 +116,93 @@ void EchoServer::run() {
     return;
   }
 
-  this->idle_check_timer_ =
-      this->loop_.runEvery(5000, [this]() {
-        auto snap = this->metrics_.snapshot();
+  this->idle_check_timer_ = this->loop_.runEvery(5000, [this]() {
+    auto snap = this->metrics_.snapshot();
 
-        LOG_INFO("[METRIC] "
-                 << "conn_cur=" << snap.current_connections
-                 << " conn_total=" << snap.total_connections_accepted
-                 << " conn_closed=" << snap.total_connections_closed
+    double qps = 0.0;
+    double in_bytes_per_sec = 0.0;
+    double out_bytes_per_sec = 0.0;
+    double avg_latency_us = 0.0;
 
-                 << " msg_recv=" << snap.messages_received
-                 << " msg_ok=" << snap.messages_decoded_ok
-                 << " msg_bad=" << snap.messages_decoded_invalid
+    uint64_t delta_msg = 0;
+    uint64_t delta_in = 0;
+    uint64_t delta_out = 0;
+    uint64_t delta_done = 0;
+    uint64_t delta_latency = 0;
+    uint64_t delta_accept = 0;
+    uint64_t delta_close = 0;
 
-                 << " resp_sent=" << snap.responses_sent
+    constexpr double interval_sec = kMetricIntervalSec;
 
-                 << " bytes_in=" << snap.bytes_received
-                 << " bytes_out=" << snap.bytes_sent
+    if (this->has_last_snapshot_) {
+      delta_msg = snap.messages_received -
+                  this->last_metrics_snapshot_.messages_received;
+      delta_in =
+          snap.bytes_received - this->last_metrics_snapshot_.bytes_received;
+      delta_out = snap.bytes_sent - this->last_metrics_snapshot_.bytes_sent;
+      delta_done = snap.worker_tasks_completed -
+                   this->last_metrics_snapshot_.worker_tasks_completed;
+      delta_latency = snap.business_latency_us_total -
+                      this->last_metrics_snapshot_.business_latency_us_total;
+      delta_accept = snap.total_connections_accepted -
+                     this->last_metrics_snapshot_.total_connections_accepted;
+      delta_close = snap.total_connections_closed -
+                    this->last_metrics_snapshot_.total_connections_closed;
 
-                 << " task_submit=" << snap.worker_tasks_submitted
-                 << " task_done=" << snap.worker_tasks_completed
-                 << " task_reject=" << snap.worker_tasks_rejected
-                 << " task_inflight=" << snap.worker_tasks_inflight
+      qps = static_cast<double>(delta_msg) / interval_sec;
+      in_bytes_per_sec = static_cast<double>(delta_in) / interval_sec;
+      out_bytes_per_sec = static_cast<double>(delta_out) / interval_sec;
 
-                 << " latency_total_us=" << snap.business_latency_us_total
-                 << " latency_max_us=" << snap.business_latency_us_max);
+      avg_latency_us = (delta_done > 0) ? (static_cast<double>(delta_latency) /
+                                           static_cast<double>(delta_done))
+                                        : 0.0;
+    }
 
-        uint64_t now = getSteadyClockMs();
+    LOG_INFO("[METRIC_TOTAL] ..."
+             << " conn_cur=" << snap.current_connections
+             << " conn_total=" << snap.total_connections_accepted
+             << " conn_closed=" << snap.total_connections_closed << " msg_recv="
+             << snap.messages_received << " resp_sent=" << snap.responses_sent
+             << " bytes_in=" << snap.bytes_received << " bytes_out="
+             << snap.bytes_sent << " task_done=" << snap.worker_tasks_completed
+             << " latency_max_us=" << snap.business_latency_us_max);
 
-        std::vector<int> to_close;
+    LOG_INFO("[METRIC_WIN] ..."
+             << " accept=" << delta_accept << " close=" << delta_close
+             << " qps=" << qps << " in_Bps=" << in_bytes_per_sec << " out_Bps="
+             << out_bytes_per_sec << " avg_us=" << avg_latency_us);
 
-        for (auto &[fd, conn] : this->connections_) {
-          if (conn->isDisconnected()) {
-            to_close.push_back(fd);
-            continue;
-          }
+    this->last_metrics_snapshot_ = snap;
+    this->has_last_snapshot_ = true;
 
-          if (now - conn->lastActiveMs() > this->idle_timeout_ms_) {
-            LOG_INFO("connection idle timeout, fd=" << fd);
-            conn->shutdown();
-            this->updateConnectionEvent(fd, conn->wantWrite());
+    uint64_t now = getSteadyClockMs();
 
-            if (conn->canBeClosed()) {
-              to_close.push_back(fd);
-            }
-          }
+    std::vector<int> to_close;
+
+    for (auto &[fd, conn] : this->connections_) {
+      if (conn->isDisconnected()) {
+        to_close.push_back(fd);
+        continue;
+      }
+
+      if (now - conn->lastActiveMs() > this->idle_timeout_ms_) {
+        LOG_INFO("connection idle timeout, fd=" << fd);
+        conn->shutdown();
+        this->updateConnectionEvent(fd, conn->wantWrite());
+
+        if (conn->canBeClosed()) {
+          to_close.push_back(fd);
         }
+      }
+    }
 
-        for (int fd : to_close) {
-          this->removeConnection(fd, ServerMetrics::CloseReason::IdleTimeout);
-        }
+    for (int fd : to_close) {
+      this->removeConnection(fd, ServerMetrics::CloseReason::IdleTimeout);
+    }
 
-        LOG_INFO("timer heartbeat, current connections="
-                 << this->connections_.size());
-      });
+    LOG_INFO(
+        "timer heartbeat, current connections=" << this->connections_.size());
+  });
 
   this->loop_.loop();
 }
@@ -261,7 +294,7 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
 
     if (rr.peer_close) {
       this->removeConnection(client_fd, ServerMetrics::CloseReason::PeerClosed);
-      LOG_INFO("handleRead failed, remove connection, fd=" << client_fd);
+      LOG_INFO("peer closed, remove connection, fd=" << client_fd);
       return;
     }
 
@@ -328,8 +361,9 @@ void EchoServer::handleNewConnection(int client_fd) {
                     [this, client_fd](uint32_t events) {
                       this->handleClientEvent(client_fd, events);
                     });
-  LOG_INFO("new connection registered, fd="
-           << client_fd << ", total_connections=" << this->connections_.size());
+  LOG_DEBUG("new connection registered, fd=" << client_fd
+                                             << ", total_connections="
+                                             << this->connections_.size());
 }
 
 void EchoServer::removeConnection(int client_fd,

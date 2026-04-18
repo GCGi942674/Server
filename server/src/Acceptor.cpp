@@ -68,7 +68,7 @@ void Acceptor::handleAccept() {
     int client_fd = accept(this->listen_fd_, nullptr, nullptr);
     if (client_fd >= 0) {
       setNonBlocking(client_fd);
-      LOG_INFO("accept new connection, client_fd=" << client_fd);
+      LOG_DEBUG("accept new connection, client_fd=" << client_fd);
       if (this->callback_) {
         this->callback_(client_fd);
       } else {

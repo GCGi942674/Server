@@ -21,7 +21,10 @@ void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
   std::weak_ptr<Connection> weak_conn = conn;
 
   bool ok = this->pool_.addTask([this, weak_conn, msg]() -> void {
-    if (msg == "__ping__") {
+    bool is_heartbeat = (msg == "__ping__");
+    uint64_t begin_us = getSteadyClockUs();
+
+    if (is_heartbeat) {
       LOG_INFO("heartbeat pong queued");
     } else {
       LOG_INFO("normal response queued");
@@ -29,6 +32,11 @@ void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
 
     auto resp = this->handler_.onMessage(msg);
     auto packet = MessageCodec::encode(resp);
+
+    this->metrics_.onResponseSent(is_heartbeat);
+
+    uint64_t end_us = getSteadyClockUs();
+    this->metrics_.onWorkerTaskCompleted(end_us - begin_us);
 
     this->loop_.queueInLoop([this, weak_conn, packet]() -> void {
       auto conn = weak_conn.lock();
@@ -63,14 +71,17 @@ void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
                                                     << conn->wantWrite());
 
       if (conn->canBeClosed()) {
-        this->removeConnection(fd);
+        this->removeConnection(fd, ServerMetrics::CloseReason::PeerClosed);
       }
     });
   });
 
   if (!ok) {
     conn->decPendingTasks();
+    this->metrics_.onWorkerTaskRejected();
     LOG_WARN("thread pool shutting down, reject new task");
+  } else {
+    this->metrics_.onWorkerTaskSubmitted();
   }
 }
 
@@ -105,35 +116,60 @@ void EchoServer::run() {
     return;
   }
 
-  this->idle_check_timer_ = this->loop_.runEvery(5000, [this]() {
-    uint64_t now = getSteadyClockMs();
+  this->idle_check_timer_ =
+      this->loop_.runEvery(5000, [this]() {
+        auto snap = this->metrics_.snapshot();
 
-    std::vector<int> to_close;
+        LOG_INFO("[METRIC] "
+                 << "conn_cur=" << snap.current_connections
+                 << " conn_total=" << snap.total_connections_accepted
+                 << " conn_closed=" << snap.total_connections_closed
 
-    for (auto &[fd, conn] : this->connections_) {
-      if (conn->isDisconnected()) {
-        to_close.push_back(fd);
-        continue;
-      }
+                 << " msg_recv=" << snap.messages_received
+                 << " msg_ok=" << snap.messages_decoded_ok
+                 << " msg_bad=" << snap.messages_decoded_invalid
 
-      if (now - conn->lastActiveMs() > this->idle_timeout_ms_) {
-        LOG_INFO("connection idle timeout, fd=" << fd);
-        conn->shutdown();
-        this->updateConnectionEvent(fd, conn->wantWrite());
+                 << " resp_sent=" << snap.responses_sent
 
-        if (conn->canBeClosed()) {
-          to_close.push_back(fd);
+                 << " bytes_in=" << snap.bytes_received
+                 << " bytes_out=" << snap.bytes_sent
+
+                 << " task_submit=" << snap.worker_tasks_submitted
+                 << " task_done=" << snap.worker_tasks_completed
+                 << " task_reject=" << snap.worker_tasks_rejected
+                 << " task_inflight=" << snap.worker_tasks_inflight
+
+                 << " latency_total_us=" << snap.business_latency_us_total
+                 << " latency_max_us=" << snap.business_latency_us_max);
+
+        uint64_t now = getSteadyClockMs();
+
+        std::vector<int> to_close;
+
+        for (auto &[fd, conn] : this->connections_) {
+          if (conn->isDisconnected()) {
+            to_close.push_back(fd);
+            continue;
+          }
+
+          if (now - conn->lastActiveMs() > this->idle_timeout_ms_) {
+            LOG_INFO("connection idle timeout, fd=" << fd);
+            conn->shutdown();
+            this->updateConnectionEvent(fd, conn->wantWrite());
+
+            if (conn->canBeClosed()) {
+              to_close.push_back(fd);
+            }
+          }
         }
-      }
-    }
 
-    for (int fd : to_close) {
-      this->removeConnection(fd);
-    }
+        for (int fd : to_close) {
+          this->removeConnection(fd, ServerMetrics::CloseReason::IdleTimeout);
+        }
 
-    LOG_INFO(
-        "timer heartbeat, current connections=" << this->connections_.size());
-  });
+        LOG_INFO("timer heartbeat, current connections="
+                 << this->connections_.size());
+      });
 
   this->loop_.loop();
 }
@@ -163,7 +199,7 @@ void EchoServer::beginShutdown() {
         }
 
         for (int fd : fds) {
-          this->removeConnection(fd);
+          this->removeConnection(fd, ServerMetrics::CloseReason::ForceShutdown);
         }
       });
 
@@ -195,29 +231,64 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
   if (conn->isDisconnected()) {
     LOG_INFO("connection already disconnected before handling event, fd="
              << client_fd);
-    this->removeConnection(client_fd);
+    this->removeConnection(client_fd, ServerMetrics::CloseReason::PeerClosed);
     return;
   }
 
   if (events & (EPOLLERR | EPOLLHUP)) {
     LOG_WARN("epoll error/hup, remove connection, fd="
              << client_fd << ", events=" << events);
-    this->removeConnection(client_fd);
+    this->removeConnection(client_fd, ServerMetrics::CloseReason::EpollError);
     return;
   }
 
   if (events & EPOLLIN) {
-    if (!conn->handleRead()) {
+    auto rr = conn->handleRead();
+    this->metrics_.onBytesReceived(rr.bytes_received);
+
+    for (uint64_t i = 0; i < rr.messages_decoded; ++i) {
+      this->metrics_.onMessageDecodedOk();
+    }
+
+    for (uint64_t i = 0; i < rr.heartbeat_messages; ++i) {
+      this->metrics_.onMessageReceived(true);
+    }
+
+    uint64_t normal_msgs = rr.messages_decoded - rr.heartbeat_messages;
+    for (uint64_t i = 0; i < normal_msgs; ++i) {
+      this->metrics_.onMessageReceived(false);
+    }
+
+    if (rr.peer_close) {
+      this->removeConnection(client_fd, ServerMetrics::CloseReason::PeerClosed);
       LOG_INFO("handleRead failed, remove connection, fd=" << client_fd);
-      this->removeConnection(client_fd);
+      return;
+    }
+
+    if (rr.decode_error) {
+      this->removeConnection(client_fd, ServerMetrics::CloseReason::ReadError);
+      LOG_INFO("handleRead failed, remove connection, fd=" << client_fd);
+      return;
+    }
+
+    if (!rr.ok) {
+      this->removeConnection(client_fd, ServerMetrics::CloseReason::ReadError);
+      LOG_INFO("handleRead failed, remove connection, fd=" << client_fd);
       return;
     }
   }
 
   if (events & EPOLLOUT) {
-    if (!conn->handleWrite()) {
+    auto wr = conn->handleWrite();
+    this->metrics_.onBytesSent(wr.bytes_sent);
+    if (!wr.ok) {
       LOG_INFO("handleWrite failed, remove connection, fd=" << client_fd);
-      this->removeConnection(client_fd);
+      this->removeConnection(client_fd, ServerMetrics::CloseReason::WriteError);
+      return;
+    }
+
+    if (wr.close) {
+      this->removeConnection(client_fd, ServerMetrics::CloseReason::PeerClosed);
       return;
     }
   }
@@ -227,7 +298,7 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
     conn->shutdown();
 
     if (conn->canBeClosed()) {
-      this->removeConnection(client_fd);
+      this->removeConnection(client_fd, ServerMetrics::CloseReason::PeerClosed);
       return;
     }
   }
@@ -246,6 +317,8 @@ void EchoServer::handleNewConnection(int client_fd) {
 
   this->connections_.emplace(client_fd, conn);
 
+  this->metrics_.onConnectionAccepted();
+
   conn->setMessageCallback(
       [this](const std::shared_ptr<Connection> &conn, const std::string &msg) {
         this->onMessage(conn, msg);
@@ -259,7 +332,8 @@ void EchoServer::handleNewConnection(int client_fd) {
            << client_fd << ", total_connections=" << this->connections_.size());
 }
 
-void EchoServer::removeConnection(int client_fd) {
+void EchoServer::removeConnection(int client_fd,
+                                  ServerMetrics::CloseReason reason) {
   auto iter = this->connections_.find(client_fd);
   if (iter == this->connections_.end()) {
     LOG_WARN("removeConnection: fd not found, fd=" << client_fd);
@@ -273,6 +347,8 @@ void EchoServer::removeConnection(int client_fd) {
                                      << this->connections_.size());
 
   this->tryFinishShutdown();
+
+  this->metrics_.onConnectionClosed(reason);
 }
 
 void EchoServer::updateConnectionEvent(int client_fd, bool want_write) {

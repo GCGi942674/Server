@@ -42,3 +42,9 @@ uint64_t getSteadyClockMs() {
   return duration_cast<milliseconds>(steady_clock::now().time_since_epoch())
       .count();
 }
+
+uint64_t getSteadyClockUs() {
+  using namespace std::chrono;
+  return duration_cast<microseconds>(steady_clock::now().time_since_epoch())
+      .count();
+}

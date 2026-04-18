@@ -17,15 +17,31 @@ public:
   enum class ConnState { Connected, Disconnecting, Disconnected };
 
 public:
+  struct ReadResult { //读结果
+    bool ok{true};
+    bool peer_close{false};
+    bool decode_error{false};
+    uint64_t bytes_received{0};
+    uint64_t messages_decoded{0};
+    uint64_t heartbeat_messages{0};
+  };
+
+  struct WriteResult { //写结果
+    bool ok{true};
+    bool close{false};
+    uint64_t bytes_sent{0};
+  };
+
+public:
   explicit Connection(int fd);
   ~Connection();
   int fd() const;
 
   void setMessageCallback(MessageCallback cb);
   //处理读事件
-  bool handleRead();
+  ReadResult handleRead();
   //处理写事件
-  bool handleWrite();
+  WriteResult handleWrite();
   //是否需要监听写事件
   bool wantWrite() const;
   void send(const std::string &data);

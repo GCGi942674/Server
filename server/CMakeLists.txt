@@ -6,6 +6,7 @@ add_executable(server
     src/EchoServer.cpp
     src/EventLoop.cpp
     src/Acceptor.cpp
+    src/ServerMetrics.cpp
     src/EchoHandler.cpp
 )
 

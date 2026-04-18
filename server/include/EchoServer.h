@@ -5,8 +5,9 @@
 #include "Connection.h"
 #include "EchoHandler.h"
 #include "EventLoop.h"
-#include "protocol/message_codec.h"
+#include "ServerMetrics.h"
 #include "Thread_pool.h"
+#include "protocol/message_codec.h"
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -27,7 +28,7 @@ public:
 private:
   void handleNewConnection(int client_fd);
   void handleClientEvent(int client_fd, uint32_t events);
-  void removeConnection(int client_fd);
+  void removeConnection(int client_fd, ServerMetrics::CloseReason reason);
   void updateConnectionEvent(int client_fd, bool want_wrtie);
 
 private:
@@ -43,6 +44,8 @@ private:
   ThreadPool pool_;
   std::atomic<bool> stopping_{false};
   int signal_fd{-1};
+
+  ServerMetrics metrics_;
 };
 
 #endif // ECHO_SERVER_H

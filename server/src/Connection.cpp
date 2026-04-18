@@ -22,7 +22,9 @@ Connection::~Connection() {
 
 int Connection::fd() const { return fd_; }
 
-bool Connection::handleRead() {
+Connection::ReadResult Connection::handleRead() {
+  ReadResult read_res;
+
   char buffer[4096];
 
   while (true) {
@@ -33,9 +35,12 @@ bool Connection::handleRead() {
       LOG_DEBUG("recv success, fd=" << this->fd_ << ", bytes=" << n);
       this->inputBuffer_.append(buffer, static_cast<size_t>(n));
 
+      read_res.bytes_received += n;
+
     } else if (n == 0) {
       LOG_INFO("peer closed connection, fd=" << this->fd_);
       this->shutdown();
+      read_res.peer_close = true;
       break;
     } else {
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -47,7 +52,8 @@ bool Connection::handleRead() {
       LOG_ERROR("recv failed, fd=" << this->fd_ << ", errno=" << errno
                                    << ", err=" << strerror(errno));
       this->setState(ConnState::Disconnected);
-      return false;
+      read_res.ok = false;
+      return read_res;
     }
   }
   std::string msg;
@@ -57,9 +63,16 @@ bool Connection::handleRead() {
     if (result == MessageCodec::DecodeResult::Ok) {
       LOG_INFO("message decoded, fd=" << this->fd_
                                       << ", msg_size=" << msg.size());
+      read_res.messages_decoded++;
+      if (msg == "__ping__") {
+        read_res.heartbeat_messages++;
+        
+      }
+
       if (this->on_message_) {
         this->incPendingTasks();
         this->on_message_(this->shared_from_this(), msg);
+
       } else {
         LOG_WARN("message callback not set, fd=" << this->fd_);
       }
@@ -73,13 +86,17 @@ bool Connection::handleRead() {
 
     LOG_WARN("invalid packet, fd=" << this->fd_);
     this->setState(ConnState::Disconnected);
-    return false;
+    read_res.ok = false;
+    read_res.decode_error = true;
+    return read_res;
   }
 
-  return true;
+  return read_res;
 }
 
-bool Connection::handleWrite() {
+Connection::WriteResult Connection::handleWrite() {
+  WriteResult write_res;
+
   while (this->outputBuffer_.readableBytes() > 0) {
 
     ssize_t n = ::send(this->fd_, this->outputBuffer_.peek(),
@@ -88,22 +105,28 @@ bool Connection::handleWrite() {
       this->refreshActivity();
       LOG_DEBUG("send success, fd=" << this->fd_ << ", bytes=" << n);
       this->outputBuffer_.retrieve(static_cast<size_t>(n));
+      write_res.bytes_sent += n;
+
     } else if (n < 0) {
       if (errno == EINTR) {
         continue;
       }
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
         LOG_DEBUG("send would block, fd=" << this->fd_);
-        return true;
+        return write_res;
       }
       LOG_ERROR("send failed, fd=" << this->fd_ << ", errno=" << errno
                                    << ", err=" << strerror(errno));
       this->setState(ConnState::Disconnected);
-      return false;
+      write_res.ok = false;
+      write_res.close = true;
+      return write_res;
     } else {
       LOG_WARN("send returned 0, fd=" << this->fd_);
       this->setState(ConnState::Disconnected);
-      return false;
+      write_res.ok = false;
+      write_res.close = true;
+      return write_res;
     }
   }
 
@@ -111,11 +134,12 @@ bool Connection::handleWrite() {
     LOG_INFO("write buffer drained, closing disconnecting connection, fd="
              << this->fd_);
     this->setState(ConnState::Disconnected);
-    return false;
+    write_res.close = true;
+    return write_res;
   }
 
   LOG_DEBUG("write buffer drained, fd=" << this->fd_);
-  return true;
+  return write_res;
 }
 
 void Connection::setMessageCallback(MessageCallback cb) {

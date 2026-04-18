@@ -1,5 +1,5 @@
-#include "thread_pool.h"
-#include "logging.h"
+#include "Thread_pool.h"
+#include "Logging.h"
 
 ThreadPool::ThreadPool(size_t thread_num) : stop_(false), accepting_(true) {
   for (size_t i = 0; i < thread_num; ++i) {

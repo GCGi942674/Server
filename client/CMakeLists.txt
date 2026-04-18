@@ -6,7 +6,7 @@ add_executable(client
 )
 
 add_executable(load_client
-    src/load_main.cpp
+    src/Load_main.cpp
     src/EchoClient.cpp
 )
 

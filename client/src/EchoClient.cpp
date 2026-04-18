@@ -1,7 +1,7 @@
 #include "EchoClient.h"
-#include "logging.h"
+#include "Logging.h"
 #include "protocol/message_codec.h"
-#include "utils.h"
+#include "Utils.h"
 #include <arpa/inet.h>
 #include <cstring>
 #include <iostream>

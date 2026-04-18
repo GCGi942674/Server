@@ -1,5 +1,5 @@
 #include "EchoClient.h"
-#include "logging.h"
+#include "Logging.h"
 #include <atomic>
 #include <iostream>
 #include <string>

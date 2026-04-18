@@ -1,6 +1,6 @@
 #include "Acceptor.h"
-#include "logging.h"
-#include "utils.h"
+#include "Logging.h"
+#include "Utils.h"
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>

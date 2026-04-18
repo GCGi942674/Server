@@ -1,5 +1,5 @@
 #include "EchoHandler.h"
-#include "logging.h"
+#include "Logging.h"
 
 std::string EchoHandler::onMessage(const std::string &msg) {
   if (msg == "__ping__") {

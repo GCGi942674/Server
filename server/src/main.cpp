@@ -1,5 +1,5 @@
 #include "EchoServer.h"
-#include "logging.h"
+#include "Logging.h"
 #include <signal.h>
 #include <sys/eventfd.h>
 #include <unistd.h>

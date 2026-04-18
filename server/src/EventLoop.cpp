@@ -1,6 +1,6 @@
 #include "EventLoop.h"
-#include "logging.h"
-#include "utils.h"
+#include "Logging.h"
+#include "Utils.h"
 #include <cerrno>
 #include <cstring>
 #include <iostream>

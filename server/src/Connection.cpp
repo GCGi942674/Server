@@ -1,6 +1,6 @@
 #include "Connection.h"
-#include "logging.h"
-#include "utils.h"
+#include "Logging.h"
+#include "Utils.h"
 #include <cstring>
 #include <errno.h>
 #include <iostream>

@@ -1,9 +1,9 @@
 # common/CMakeLists.txt
 
 add_library(common STATIC
-    src/utils.cpp
-    src/thread_pool.cpp
-    src/logging.cpp
+    src/Utils.cpp
+    src/Thread_pool.cpp
+    src/Logging.cpp
     src/Buffer.cpp
     src/protocol/message_codec.cpp
 )

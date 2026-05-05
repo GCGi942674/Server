@@ -48,7 +48,7 @@ EventLoop::~EventLoop() {
 void EventLoop::loop() {
   LOG_INFO("event loop started");
   epoll_event events[1024];
-  while (!this->quit_) {
+  while (!this->quit_.load()) {
     int timeout_ms = this->getPollTimeoutMs();
     int nready = epoll_wait(this->epfd_, events, 1024, timeout_ms);
 
@@ -89,7 +89,7 @@ void EventLoop::loop() {
 
 void EventLoop::quit() {
   LOG_INFO("event loop quit requested");
-  this->quit_ = true;
+  this->quit_.store(true);
   this->queueInLoop([]() {});
 }
 

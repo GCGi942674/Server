@@ -9,8 +9,11 @@
 #include <sys/eventfd.h>
 #include <unistd.h>
 
-EchoServer::EchoServer(int port, EchoHandler &handler, int signal_fd)
-    : handler_(handler), acceptor_(&loop_, port), signal_fd(signal_fd) {
+EchoServer::EchoServer(int port, EchoHandler &handler, int signal_fd,
+                       size_t io_thread_num)
+    : handler_(handler), loop_(), acceptor_(&loop_, port),
+      io_loop_pool_(std::make_unique<EventLoopThreadPool>(io_thread_num)),
+      io_thread_num_(io_thread_num), pool_(8), signal_fd(signal_fd) {
   LOG_INFO("EchoServer created, port=" << port);
 }
 
@@ -38,7 +41,15 @@ void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
     uint64_t end_us = getSteadyClockUs();
     this->metrics_.onWorkerTaskCompleted(end_us - begin_us);
 
-    this->loop_.queueInLoop([this, weak_conn, packet]() -> void {
+    auto conn = weak_conn.lock();
+    if (!conn) {
+      LOG_WARN("Connection expired before sending response");
+      return;
+    }
+
+    EventLoop *onwer = conn->ownerLoop();
+
+    onwer->queueInLoop([this, weak_conn, packet]() -> void {
       auto conn = weak_conn.lock();
       if (!conn) {
         LOG_WARN("Connection expired before sending response");
@@ -48,13 +59,15 @@ void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
       auto guard = finally([&] { conn->decPendingTasks(); });
 
       int fd = conn->fd();
-
-      auto iter = this->connections_.find(fd);
-      if (iter == this->connections_.end()) {
-        LOG_WARN("connection not found when sending response, fd=" << fd);
-        return;
+      std::unordered_map<int, std::shared_ptr<Connection>>::iterator iter;
+      {
+        std::lock_guard<std::mutex> lock(this->connection_mutex_);
+        iter = this->connections_.find(fd);
+        if (iter == this->connections_.end()) {
+          LOG_WARN("connection not found when sending response, fd=" << fd);
+          return;
+        }
       }
-
       if (iter->second != conn) {
         LOG_WARN("fd reused, skip stale connection response, fd=" << fd);
         return;
@@ -66,12 +79,12 @@ void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
       }
 
       conn->sendPacket(packet);
-      this->updateConnectionEvent(fd, conn->wantWrite());
+      this->updateConnectionEvent(conn, conn->wantWrite());
       LOG_DEBUG("response queued back to loop, fd=" << fd << ", want_write="
                                                     << conn->wantWrite());
 
       if (conn->canBeClosed()) {
-        this->removeConnection(fd, ServerMetrics::CloseReason::PeerClosed);
+        this->removeConnection(conn, ServerMetrics::CloseReason::PeerClosed);
       }
     });
   });
@@ -87,6 +100,8 @@ void EchoServer::onMessage(const std::shared_ptr<Connection> &conn,
 
 void EchoServer::run() {
   LOG_INFO("EchoServer running");
+
+  this->io_loop_pool_->start();
 
   this->loop_.addFd(signal_fd, EPOLLIN, [this](uint32_t) {
     uint64_t val = 0;
@@ -177,27 +192,27 @@ void EchoServer::run() {
 
     uint64_t now = getSteadyClockMs();
 
-    std::vector<int> to_close;
+    std::vector<std::shared_ptr<Connection>> to_close;
 
     for (auto &[fd, conn] : this->connections_) {
       if (conn->isDisconnected()) {
-        to_close.push_back(fd);
+        to_close.push_back(conn);
         continue;
       }
 
       if (now - conn->lastActiveMs() > this->idle_timeout_ms_) {
         LOG_INFO("connection idle timeout, fd=" << fd);
         conn->shutdown();
-        this->updateConnectionEvent(fd, conn->wantWrite());
+        this->updateConnectionEvent(conn, conn->wantWrite());
 
         if (conn->canBeClosed()) {
-          to_close.push_back(fd);
+          to_close.push_back(conn);
         }
       }
     }
 
-    for (int fd : to_close) {
-      this->removeConnection(fd, ServerMetrics::CloseReason::IdleTimeout);
+    for (auto &conn : to_close) {
+      this->removeConnection(conn, ServerMetrics::CloseReason::IdleTimeout);
     }
 
     LOG_INFO(
@@ -219,20 +234,21 @@ void EchoServer::beginShutdown() {
 
   for (auto &[fd, conn] : this->connections_) {
     conn->shutdown();
-    this->updateConnectionEvent(fd, conn->wantWrite());
+    this->updateConnectionEvent(conn, conn->wantWrite());
   }
 
   this->shutdown_timer_ =
       this->loop_.runAfter(this->shutdown_timeout_ms_, [this]() {
         LOG_WARN("graceful shutdown timeout, force closing all connections");
 
-        std::vector<int> fds;
+        std::vector<std::shared_ptr<Connection>> fds;
         for (auto &[fd, conn] : this->connections_) {
-          fds.push_back(fd);
+          fds.push_back(conn);
         }
 
-        for (int fd : fds) {
-          this->removeConnection(fd, ServerMetrics::CloseReason::ForceShutdown);
+        for (auto &conn : fds) {
+          this->removeConnection(conn,
+                                 ServerMetrics::CloseReason::ForceShutdown);
         }
       });
 
@@ -252,26 +268,31 @@ void EchoServer::tryFinishShutdown() {
   }
 }
 
-void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
+void EchoServer::handleClientEvent(const std::shared_ptr<Connection> &conn,
+                                   uint32_t events) {
+  int client_fd = conn->fd();
   LOG_DEBUG("handle client event, fd=" << client_fd << ", events=" << events);
-  auto iter = this->connections_.find(client_fd);
-  if (iter == this->connections_.end()) {
-    LOG_WARN("client event but connection not found, fd=" << client_fd);
-    return;
+  std::unordered_map<int, std::shared_ptr<Connection>>::iterator iter;
+  {
+    std::lock_guard<std::mutex> lock(this->connection_mutex_);
+    iter = this->connections_.find(client_fd);
+    if (iter == this->connections_.end()) {
+      LOG_WARN("client event but connection not found, fd=" << client_fd);
+      return;
+    }
   }
-  std::shared_ptr<Connection> conn = iter->second;
 
   if (conn->isDisconnected()) {
     LOG_INFO("connection already disconnected before handling event, fd="
              << client_fd);
-    this->removeConnection(client_fd, ServerMetrics::CloseReason::PeerClosed);
+    this->removeConnection(conn, ServerMetrics::CloseReason::PeerClosed);
     return;
   }
 
   if (events & (EPOLLERR | EPOLLHUP)) {
     LOG_WARN("epoll error/hup, remove connection, fd="
              << client_fd << ", events=" << events);
-    this->removeConnection(client_fd, ServerMetrics::CloseReason::EpollError);
+    this->removeConnection(conn, ServerMetrics::CloseReason::EpollError);
     return;
   }
 
@@ -293,19 +314,19 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
     }
 
     if (rr.peer_close) {
-      this->removeConnection(client_fd, ServerMetrics::CloseReason::PeerClosed);
+      this->removeConnection(conn, ServerMetrics::CloseReason::PeerClosed);
       LOG_INFO("peer closed, remove connection, fd=" << client_fd);
       return;
     }
 
     if (rr.decode_error) {
-      this->removeConnection(client_fd, ServerMetrics::CloseReason::ReadError);
+      this->removeConnection(conn, ServerMetrics::CloseReason::ReadError);
       LOG_INFO("handleRead failed, remove connection, fd=" << client_fd);
       return;
     }
 
     if (!rr.ok) {
-      this->removeConnection(client_fd, ServerMetrics::CloseReason::ReadError);
+      this->removeConnection(conn, ServerMetrics::CloseReason::ReadError);
       LOG_INFO("handleRead failed, remove connection, fd=" << client_fd);
       return;
     }
@@ -316,12 +337,12 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
     this->metrics_.onBytesSent(wr.bytes_sent);
     if (!wr.ok) {
       LOG_INFO("handleWrite failed, remove connection, fd=" << client_fd);
-      this->removeConnection(client_fd, ServerMetrics::CloseReason::WriteError);
+      this->removeConnection(conn, ServerMetrics::CloseReason::WriteError);
       return;
     }
 
     if (wr.close) {
-      this->removeConnection(client_fd, ServerMetrics::CloseReason::PeerClosed);
+      this->removeConnection(conn, ServerMetrics::CloseReason::PeerClosed);
       return;
     }
   }
@@ -331,12 +352,12 @@ void EchoServer::handleClientEvent(int client_fd, uint32_t events) {
     conn->shutdown();
 
     if (conn->canBeClosed()) {
-      this->removeConnection(client_fd, ServerMetrics::CloseReason::PeerClosed);
+      this->removeConnection(conn, ServerMetrics::CloseReason::PeerClosed);
       return;
     }
   }
 
-  this->updateConnectionEvent(client_fd, iter->second->wantWrite());
+  this->updateConnectionEvent(conn, iter->second->wantWrite());
 }
 
 void EchoServer::handleNewConnection(int client_fd) {
@@ -346,53 +367,87 @@ void EchoServer::handleNewConnection(int client_fd) {
     return;
   }
 
-  auto conn = std::make_shared<Connection>(client_fd);
+  EventLoop *io_loop = this->io_loop_pool_->getNextLoop();
+  if (io_loop == nullptr) {
+    io_loop = &this->loop_;
+  }
 
-  this->connections_.emplace(client_fd, conn);
+  io_loop->queueInLoop([this, io_loop, client_fd]() {
+    std::shared_ptr<Connection> conn;
+    {
+      std::lock_guard<std::mutex> lock(this->connection_mutex_);
+      conn = std::make_shared<Connection>(io_loop, client_fd);
+      this->connections_.emplace(client_fd, conn);
+    }
 
-  this->metrics_.onConnectionAccepted();
+    this->metrics_.onConnectionAccepted();
 
-  conn->setMessageCallback(
-      [this](const std::shared_ptr<Connection> &conn, const std::string &msg) {
-        this->onMessage(conn, msg);
-      });
+    conn->setMessageCallback(
+        [this](const std::shared_ptr<Connection> &conn,
+               const std::string &msg) { this->onMessage(conn, msg); });
 
-  this->loop_.addFd(client_fd, EPOLLIN | EPOLLRDHUP,
-                    [this, client_fd](uint32_t events) {
-                      this->handleClientEvent(client_fd, events);
-                    });
-  LOG_DEBUG("new connection registered, fd=" << client_fd
-                                             << ", total_connections="
-                                             << this->connections_.size());
+    io_loop->addFd(client_fd, EPOLLIN | EPOLLRDHUP,
+                   [this, conn](uint32_t events) {
+                     this->handleClientEvent(conn, events);
+                   });
+    LOG_DEBUG("new connection registered, fd=" << client_fd
+                                               << ", total_connections="
+                                               << this->connections_.size());
+  });
 }
 
-void EchoServer::removeConnection(int client_fd,
+void EchoServer::removeConnection(const std::shared_ptr<Connection> &conn,
                                   ServerMetrics::CloseReason reason) {
-  auto iter = this->connections_.find(client_fd);
-  if (iter == this->connections_.end()) {
-    LOG_WARN("removeConnection: fd not found, fd=" << client_fd);
+
+  if (!conn) {
     return;
   }
 
-  iter->second->setState(Connection::ConnState::Disconnected);
-  this->loop_.removeFd(client_fd);
-  this->connections_.erase(client_fd);
-  LOG_INFO("connection removed, fd=" << client_fd << ", total_connections="
-                                     << this->connections_.size());
+  EventLoop *loop = conn->ownerLoop();
 
-  this->tryFinishShutdown();
+  loop->queueInLoop([this, conn, reason]() {
+    int client_fd = conn->fd();
+    conn->setState(Connection::ConnState::Disconnected);
+    conn->ownerLoop()->removeFd(client_fd);
 
-  this->metrics_.onConnectionClosed(reason);
+    {
+      std::lock_guard<std::mutex> lock(this->connection_mutex_);
+
+      auto iter = this->connections_.find(client_fd);
+      if (iter == this->connections_.end()) {
+        LOG_WARN("removeConnection: fd not found, fd=" << client_fd);
+        return;
+      }
+
+      if (iter->second != conn) {
+        LOG_WARN("removeConnection: fd reused, fd=" << client_fd);
+        return;
+      }
+
+      this->connections_.erase(client_fd);
+    }
+    LOG_INFO("connection removed, fd=" << client_fd << ", total_connections="
+                                       << this->connections_.size());
+
+    this->metrics_.onConnectionClosed(reason);
+    this->tryFinishShutdown();
+  });
 }
 
-void EchoServer::updateConnectionEvent(int client_fd, bool want_write) {
+void EchoServer::updateConnectionEvent(const std::shared_ptr<Connection> &conn,
+                                       bool want_write) {
 
-  auto iter = this->connections_.find(client_fd);
-  if (iter == this->connections_.end()) {
-    return;
+  int client_fd = conn->fd();
+  std::unordered_map<int, std::shared_ptr<Connection>>::iterator iter;
+  {
+    std::lock_guard<std::mutex> lock(this->connection_mutex_);
+
+    iter = this->connections_.find(client_fd);
+    if (iter == this->connections_.end()) {
+      return;
+    }
   }
 
-  auto conn = iter->second;
   uint32_t events = EPOLLRDHUP;
   if (!this->stopping_ && conn->isConnected()) {
     events |= EPOLLIN;
@@ -402,8 +457,12 @@ void EchoServer::updateConnectionEvent(int client_fd, bool want_write) {
     events |= EPOLLOUT;
   }
 
-  this->loop_.updateFd(client_fd, events);
-  LOG_DEBUG("connection events updated, fd=" << client_fd
-                                             << ", want_write=" << want_write
-                                             << ", events=" << events);
+  EventLoop *loop = conn->ownerLoop();
+
+  loop->queueInLoop([this, conn, client_fd, events, want_write]() {
+    conn->ownerLoop()->updateFd(client_fd, events);
+    LOG_DEBUG("connection events updated, fd=" << client_fd
+                                               << ", want_write=" << want_write
+                                               << ", events=" << events);
+  });
 }

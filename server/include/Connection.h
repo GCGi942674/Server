@@ -2,6 +2,7 @@
 #define CONNECTION_H
 
 #include "Buffer.h"
+#include "EventLoop.h"
 #include "protocol/message_codec.h"
 #include <atomic>
 #include <chrono>
@@ -33,7 +34,8 @@ public:
   };
 
 public:
-  explicit Connection(int fd);
+  explicit Connection(EventLoop *loop, int fd);
+  EventLoop *ownerLoop() const;
   ~Connection();
   int fd() const;
 
@@ -65,7 +67,7 @@ public:
 
 private:
   int fd_;
-  ConnState state_;
+  std::atomic<ConnState> state_;
   MessageCallback on_message_;
 
   Buffer inputBuffer_;
@@ -74,6 +76,8 @@ private:
   std::atomic<int> pending_tasks_{0};
 
   std::atomic<uint64_t> last_active_ms_{0};
+
+  EventLoop *owner_loop_;
 };
 
 #endif

@@ -5,6 +5,7 @@
 #include "Connection.h"
 #include "EchoHandler.h"
 #include "EventLoop.h"
+#include "EventLoopThreadPool.h"
 #include "ServerMetrics.h"
 #include "Thread_pool.h"
 #include "protocol/message_codec.h"
@@ -17,7 +18,8 @@
 
 class EchoServer {
 public:
-  EchoServer(int port, EchoHandler &handler, int signal_fd);
+  EchoServer(int port, EchoHandler &handler, int signal_fd,
+             size_t io_thread_num);
   ~EchoServer();
   void run();
   void beginShutdown();
@@ -27,9 +29,9 @@ public:
 
 private:
   void handleNewConnection(int client_fd);
-  void handleClientEvent(int client_fd, uint32_t events);
-  void removeConnection(int client_fd, ServerMetrics::CloseReason reason);
-  void updateConnectionEvent(int client_fd, bool want_wrtie);
+  void handleClientEvent(const std::shared_ptr<Connection>& conn, uint32_t events);
+  void removeConnection(const std::shared_ptr<Connection>& conn, ServerMetrics::CloseReason reason);
+  void updateConnectionEvent(const std::shared_ptr<Connection>& conn, bool want_write);
 
 private:
   uint64_t idle_timeout_ms_{60000};
@@ -38,9 +40,15 @@ private:
   EventLoop::TimerId idle_check_timer_{0};
 
   EchoHandler &handler_;
-  Acceptor acceptor_;
   EventLoop loop_;
+  Acceptor acceptor_;
+
+  std::unique_ptr<EventLoopThreadPool> io_loop_pool_;
+  size_t io_thread_num_;
+
   std::unordered_map<int, std::shared_ptr<Connection>> connections_;
+  std::mutex connection_mutex_;
+
   ThreadPool pool_;
   std::atomic<bool> stopping_{false};
   int signal_fd{-1};

@@ -9,13 +9,13 @@ add_library(common STATIC
     src/protocol/message_codec.cpp
 )
 
-# 头文件路径（给别人用）
+# 头文件路径
 target_include_directories(common
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-# 编译选项（可选，但很专业）
+# 编译选项
 target_compile_options(common
     PRIVATE
         -Wall
@@ -23,6 +23,5 @@ target_compile_options(common
         -Wpedantic
 )
 
-# 如果以后用 pthread
 find_package(Threads REQUIRED)
 target_link_libraries(common PUBLIC Threads::Threads)

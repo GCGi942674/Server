@@ -8,6 +8,8 @@ add_executable(server
     src/Acceptor.cpp
     src/ServerMetrics.cpp
     src/EchoHandler.cpp
+    src/EventLoopThread.cpp
+    src/EventLoopThreadPool.cpp
 )
 
 target_include_directories(server
@@ -20,4 +22,3 @@ target_link_libraries(server
         common
 )
 
-# Linux 下 epoll / socket 一般不用额外库

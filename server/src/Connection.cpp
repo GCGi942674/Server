@@ -7,10 +7,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-Connection::Connection(int fd) : fd_(fd), state_(ConnState::Connected) {
+Connection::Connection(EventLoop *loop, int fd)
+    : owner_loop_(loop), fd_(fd), state_(ConnState::Connected) {
   this->refreshActivity();
   LOG_DEBUG("connection created, fd=" << this->fd_);
 }
+
+EventLoop *Connection::ownerLoop() const { return this->owner_loop_; }
 
 Connection::~Connection() {
   LOG_DEBUG("connection destroying, fd=" << this->fd_);
@@ -150,6 +153,8 @@ void Connection::sendPacket(const std::vector<char> &packet) {
   LOG_DEBUG("packet queued to output buffer, fd="
             << this->fd_ << ", packet_size=" << packet.size()
             << ", pending_write=" << this->outputBuffer_.readableBytes());
+
+  this->ownerLoop()->queueInLoop([this]() {});
 }
 
 void Connection::send(const std::string &data) {
@@ -162,21 +167,21 @@ bool Connection::wantWrite() const {
   return this->outputBuffer_.readableBytes() > 0;
 }
 
-Connection::ConnState Connection::state() const { return this->state_; }
+Connection::ConnState Connection::state() const { return this->state_.load(); }
 
 void Connection::setState(Connection::ConnState st) {
-  if (this->state_ != st) {
-    LOG_INFO("connection state change, fd=" << this->fd_ << ", from="
-                                            << static_cast<int>(this->state_)
-                                            << ", to=" << static_cast<int>(st));
+  if (this->state_.load() != st) {
+    LOG_INFO("connection state change, fd="
+             << this->fd_ << ", from=" << static_cast<int>(this->state_.load())
+             << ", to=" << static_cast<int>(st));
   }
-  this->state_ = st;
+  this->state_.store(st);
 }
 
 void Connection::shutdown() {
   if (this->state_ == ConnState::Connected) {
     LOG_INFO("connection enter disconnecting, fd=" << this->fd_);
-    this->state_ = ConnState::Disconnecting;
+    this->state_.store(ConnState::Disconnecting);
   }
 }
 

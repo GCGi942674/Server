@@ -60,7 +60,7 @@ private:
 private:
   int epfd_;
   int wakeup_fd_;
-  bool quit_;
+  std::atomic<bool> quit_{false};
 
   std::mutex timer_mutex_;
   std::priority_queue<std::shared_ptr<Timer>,

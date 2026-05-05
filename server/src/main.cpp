@@ -27,7 +27,7 @@ int main() {
   sigaction(SIGTERM, &sa, nullptr);
 
   EchoHandler handler;
-  EchoServer server(8080, handler, g_signal_fd);
+  EchoServer server(8080, handler, g_signal_fd, 8);
 
   server.run();
 
